@@ -5712,6 +5712,177 @@ test('the forecast panel checks for a regime change and names the one that matte
     'and the warning must fire on it, because that is the protection being demonstrated');
 });
 
+/* Multi-attribute comparability rests on two facts that pull opposite ways, and the module
+   quotes measured figures for both. Re-measure them here, because this is the one place in
+   the tool where the honest answer SAVES the user money - a Bonferroni correction nobody
+   needed costs real batches - and a figure that drifts would cost it back.
+
+   Verified to bite: each assertion fails if its figure is moved. */
+test('requiring every attribute to pass needs no correction, and the power cost is measured', () => {
+  const CM = require(path.join(ROOT, 'comparability.js'));
+  const normal = r => { let u = 0, v = 0; while (!u) u = r(); while (!v) v = r(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+  const equi = (k, rho) => Array.from({ length: k }, (_, i) => Array.from({ length: k }, (_, j) => (i === j ? 1 : rho)));
+
+  /* 1. The intersection-union property, which is the claim the module leans on hardest. With
+        EVERY attribute sitting exactly on its margin - the worst case for a false pass - the
+        rate must stay at or below alpha however many attributes there are, with no
+        correction. It should also FALL as attributes are added, which is why a Bonferroni on
+        top is conservative twice over. */
+  const onBoundary = (k, rho) => CM.combinedPower(
+    Array.from({ length: k }, () => ({ sd: 1, margin: 1, assumedDiff: 1 })),
+    equi(k, rho), 20, { alpha: 0.05, reps: 4000, seed: 41 });
+  const single = onBoundary(1, 0);
+  assert.ok(single <= 0.06, 'a single attribute on its margin must pass at most alpha; measured ' + (100 * single).toFixed(2) + '%');
+  for (const rho of [0, 0.6, 0.9]) {
+    let prev = single;
+    for (const k of [3, 6, 12]) {
+      const p = onBoundary(k, rho);
+      assert.ok(p <= 0.05, 'the false-pass rate must stay at or below alpha with no correction; at k=' + k + ' rho=' + rho + ' it measured ' + (100 * p).toFixed(2) + '%');
+      assert.ok(p <= prev + 0.005,
+        'the module tells the reader the rate FALLS as attributes are added, which is why Bonferroni is conservative twice over; at k=' + k + ' rho=' + rho + ' it rose from ' + (100 * prev).toFixed(2) + '% to ' + (100 * p).toFixed(2) + '%');
+      prev = p;
+    }
+  }
+  // And a Bonferroni alpha would be stricter than the real rate, which is the point being made.
+  const atTwelve = onBoundary(12, 0.9);
+  assert.ok(atTwelve < 0.05 / 12 * 4,
+    'the claim is that the real rate at twelve attributes is already near or under the Bonferroni alpha of ' + (100 * 0.05 / 12).toFixed(2) + '%; measured ' + (100 * atTwelve).toFixed(2) + '%');
+
+  /* 2. The power cost, and the direction correlation moves it. Every attribute individually
+        powered at 80%: independent attributes multiply down to about 0.8^k, and correlated
+        ones do markedly better - which is the finding, because the usual quoted figure
+        assumes independence and is the worst case. */
+  const atEqualPower = (k, rho) => CM.combinedPower(
+    Array.from({ length: k }, () => ({ sd: 1, margin: 0.9424, assumedDiff: 0 })),
+    equi(k, rho), 20, { alpha: 0.05, reps: 4000, seed: 11 });
+  const one = atEqualPower(1, 0);
+  assert.ok(Math.abs(one - 0.8) < 0.04, 'the margin used here is calibrated to 80% single-attribute power; measured ' + (100 * one).toFixed(1) + '%');
+  for (const k of [3, 6, 12]) {
+    const indep = atEqualPower(k, 0), product = Math.pow(0.8, k);
+    assert.ok(Math.abs(indep - product) < 0.05,
+      'independent attributes must multiply down to about 0.8^' + k + ' = ' + (100 * product).toFixed(1) + '%; measured ' + (100 * indep).toFixed(1) + '%');
+    const corr = atEqualPower(k, 0.9);
+    assert.ok(corr > indep,
+      'correlated attributes must do BETTER than independent ones - that is the finding the module rests on; at k=' + k + ' correlated measured ' + (100 * corr).toFixed(1) + '% against independent ' + (100 * indep).toFixed(1) + '%');
+  }
+  // The headline: twelve attributes, 7% if independent, several times that if correlated.
+  const twelveIndep = atEqualPower(12, 0), twelveCorr = atEqualPower(12, 0.9);
+  assert.ok(twelveIndep < 0.12, 'twelve independent attributes at 80% each is quoted near 7%; measured ' + (100 * twelveIndep).toFixed(1) + '%');
+  assert.ok(twelveCorr > 3 * twelveIndep,
+    'and correlation is quoted as raising it several-fold; measured ' + (100 * twelveCorr).toFixed(1) + '% against ' + (100 * twelveIndep).toFixed(1) + '%');
+  // A single attribute cannot depend on a correlation with attributes that do not exist.
+  for (const rho of [0.3, 0.9]) assert.ok(Math.abs(atEqualPower(1, rho) - one) < 0.03,
+    'with one attribute the correlation is meaningless and must not change the answer');
+
+  /* 3. The correlation is MEASURED from the data, which is the whole reason this beats
+        assuming either extreme. Recover a known one. */
+  const transfer = (seed, k, n, rho, shift) => {
+    const r = E.rng(seed), rows = [];
+    for (let i = 0; i < n; i++) {
+      const sR = normal(r), sT = normal(r);
+      for (let j = 0; j < k; j++) {
+        const base = 100 + j * 5;
+        rows.push({ attribute: 'A' + (j + 1), group: 'Site 1', sample: 'B' + i, value: base + Math.sqrt(rho) * sR + Math.sqrt(1 - rho) * normal(r) });
+        rows.push({ attribute: 'A' + (j + 1), group: 'Site 2', sample: 'B' + i, value: base + (shift || 0) + Math.sqrt(rho) * sT + Math.sqrt(1 - rho) * normal(r) });
+      }
+    }
+    return rows;
+  };
+  for (const rho of [0.3, 0.6, 0.9]) {
+    const est = [];
+    for (let s = 0; s < 12; s++) est.push(CM.analyze(transfer(s * 7 + 101, 8, 20, rho, 0), { margin: 1.3, reps: 200, sizeReps: 200, maxN: 60 }).correlation.mean);
+    const m = E.mean(est);
+    assert.ok(Math.abs(m - rho) < 0.12, 'the correlation between attributes must be recovered from the data: true ' + rho + ', measured ' + m.toFixed(2));
+  }
+  /* Negative estimates are clamped to zero on purpose - on a dozen batches a negative
+     correlation between two quality attributes is noise, and feeding it in would make the
+     combined claim look harder than independence, which this much data cannot support. */
+  const flat = CM.analyze(transfer(5, 8, 20, 0, 0), { margin: 1.3, reps: 300, sizeReps: 200, maxN: 60 });
+  assert.ok(flat.correlation.mean >= 0, 'the clamp must keep the pooled estimate at or above zero; got ' + flat.correlation.mean);
+  assert.ok(flat.correlation.mean < 0.2, 'and independent attributes must still read near zero; got ' + flat.correlation.mean.toFixed(2));
+
+  /* 4. The intersection-union VERDICT: one attribute outside its margin fails the whole
+        transfer, and the binding attribute is named. This is the thing a dozen separate runs
+        could not tell you. */
+  const rows = transfer(13, 4, 20, 0.5, 0);
+  rows.filter(r => r.attribute === 'A3' && r.group === 'Site 2').forEach(r => { r.value += 2.6; });
+  const mixed = CM.analyze(rows, { margin: 1.3, reps: 600, sizeReps: 400, maxN: 80 });
+  assert.strictEqual(mixed.allEquivalent, false, 'one attribute outside its margin must fail the whole claim');
+  assert.strictEqual(mixed.binding.name, 'A3', 'and the binding attribute must be named; got ' + mixed.binding.name);
+  assert.ok(mixed.attributes.filter(a => a.equivalent).length === 3, 'the other three must still be reported as passing individually');
+
+  /* 4b. And analyze() must actually USE the measured correlation rather than quietly
+         assuming independence. Nothing above caught that: the correlation assertions test the
+         estimator directly and the power assertions pass a matrix in by hand, so a version
+         that measured the correlation, printed it, and then simulated with the identity would
+         have passed every one of them. On a strongly correlated transfer with the combined
+         power in a range where it can move, the two figures must differ in the right
+         direction. */
+  const corrRun = CM.analyze(transfer(5, 10, 16, 0.9, 0), { margin: 1.05, reps: 3000, sizeReps: 600, maxN: 120 });
+  assert.ok(corrRun.correlation.mean > 0.7, 'this fixture is meant to be strongly correlated; measured ' + corrRun.correlation.mean.toFixed(2));
+  assert.ok(corrRun.combinedPower > corrRun.independentPower + 0.03,
+    'analyze() must simulate the combined power on the correlation it measured, not on the identity: it reported ' +
+    (100 * corrRun.combinedPower).toFixed(1) + '% against an independence figure of ' + (100 * corrRun.independentPower).toFixed(1) + '%');
+
+  /* 5. Sizing for the whole claim must exceed sizing for the worst single attribute. If it
+        did not, the gap this closes would not exist. */
+  const sized = CM.analyze(transfer(5, 12, 20, 0.6, 0), { margin: 0.95, reps: 1500, sizeReps: 900, maxN: 300 });
+  assert.ok(sized.nForCombined !== null && sized.nPerAttributeWould !== null, 'both sample sizes must be reported, or the comparison cannot be made');
+  assert.ok(sized.nForCombined > sized.nPerAttributeWould,
+    'the whole claim must need more per site than the worst single attribute; got ' + sized.nForCombined + ' against ' + sized.nPerAttributeWould);
+
+  /* 5b. The three shipped examples must each demonstrate the thing their button claims. The
+         first version of them did not: a single 2.5% margin was applied across twelve
+         attributes in different units, so "a transfer that passes" failed nine of them - a
+         2.5% band is generous on a purity of 98% and a seventh of the noise on an aggregate
+         of 1.1%. They carry a margin per attribute now, which is what a real protocol does. */
+  const src = fs.readFileSync(path.join(ROOT, 'tost-ui.js'), 'utf8');
+  const m = src.match(/function multiExample\(kind\) \{[\s\S]*?\n  \}/);
+  assert.ok(m, 'the transfer examples must be generated, not typed in');
+  const multiExample = new Function('E', 'return ' + m[0] + ';')(E);
+  const parse = text => {
+    const lines = text.trim().split('\n'), head = lines[0].split(',');
+    const iA = head.indexOf('Attribute'), iG = head.indexOf('Site'), iV = head.indexOf('Result'), iM = head.indexOf('Margin'), iB = head.indexOf('Batch');
+    assert.ok(iM >= 0, 'the examples must carry a margin per attribute, or they repeat the defect above');
+    const margins = {};
+    const rows = lines.slice(1).map(l => { const p = l.split(','); margins[p[iA]] = Number(p[iM]); return { attribute: p[iA], group: p[iG], value: Number(p[iV]), sample: p[iB] }; });
+    return { rows, margins };
+  };
+  const EXP = [
+    ['pass', true, null],
+    ['fail', false, 1],      // exactly one attribute outside: the case eleven separate runs would pass
+    ['thin', null, null]     // sized per attribute, poor as a whole
+  ];
+  for (const [kind, shouldPass, failCount] of EXP) {
+    const ex = parse(multiExample(kind));
+    const res = CM.analyze(ex.rows, { margins: ex.margins, marginType: 'absolute', reps: 1200, sizeReps: 500, maxN: 200 });
+    if (shouldPass === true) assert.strictEqual(res.allEquivalent, true,
+      'the "transfer that passes" example must pass; ' + res.attributes.filter(a => a.tost && !a.equivalent).map(a => a.name).join(', ') + ' did not');
+    if (failCount !== null) {
+      const outside = res.attributes.filter(a => a.tost && !a.equivalent);
+      assert.strictEqual(outside.length, failCount,
+        'the "eleven pass, one fails" example must have exactly one attribute outside its margin, or it no longer shows what it claims; ' + outside.length + ' were outside');
+    }
+    if (kind === 'thin') {
+      assert.ok(res.weakestPerAttributePower > 0.4,
+        'the per-attribute-sized example must have each attribute decently powered on its own, or it is just an underpowered study; weakest measured ' + (100 * res.weakestPerAttributePower).toFixed(0) + '%');
+      assert.ok(res.combinedPower < 0.5,
+        'and the chance of ALL of them passing must be poor, which is the whole demonstration; measured ' + (100 * res.combinedPower).toFixed(0) + '%');
+      assert.ok(res.nForCombined > res.nPerAttributeWould,
+        'and the whole claim must need more per site than the per-attribute sizing it was built from');
+    }
+  }
+
+  // 6. The refusals.
+  assert.throws(() => CM.analyze([{ attribute: 'A', group: 'S1', value: 1 }, { attribute: 'A', group: 'S2', value: 1 }], { margin: 1 }),
+    /Only one attribute/, 'one attribute is an equivalence test and belongs on the equivalence bench');
+  const noMargin = CM.analyze(transfer(5, 3, 20, 0.5, 0), { reps: 200, sizeReps: 200, maxN: 40, margins: { A1: 1.3, A2: 1.3 } });
+  assert.ok(noMargin.attributes.find(a => a.name === 'A3').error,
+    'an attribute with no margin must be reported as untested rather than given an invented one');
+  assert.ok(/will not invent one/.test(noMargin.attributes.find(a => a.name === 'A3').error));
+  assert.strictEqual(noMargin.anyUntested, true, 'and the overall result must say some attributes were left out');
+});
+
 test('the README figures for the academy match the academy', () => {
   const readme = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8');
   const src = fs.readFileSync(path.join(ROOT, 'learn.js'), 'utf8');

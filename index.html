@@ -484,9 +484,20 @@
         <button class="btn ghost small" id="eq-sample" type="button">Example: a transfer that passes</button>
         <button class="btn ghost small" id="eq-sample2" type="button">Example: a real bias</button>
         <button class="btn ghost small" id="eq-sample3" type="button">Example: too few results</button>
+        <button class="btn ghost small" id="eq-sample4" type="button" hidden>Example: twelve attributes, all pass</button>
+        <button class="btn ghost small" id="eq-sample5" type="button" hidden>Example: eleven pass, one fails</button>
+        <button class="btn ghost small" id="eq-sample6" type="button" hidden>Example: sized per attribute, underpowered as a whole</button>
         <button class="btn ghost small" id="eq-clear" type="button">Clear</button>
       </div>
       <div class="controls">
+        <label>What are you comparing?
+          <select id="eq-what">
+            <option value="one" selected>One attribute between two methods or sites (TOST)</option>
+            <option value="multi">A whole transfer: every attribute at once, one verdict</option>
+          </select>
+        </label>
+      </div>
+      <div class="controls" id="eq-layout-wrap">
         <label>How is the data laid out?
           <select id="eq-layout">
             <option value="one" selected>One file &mdash; a column says which method</option>
@@ -538,6 +549,17 @@
           </label>
           <label>Sample identifier (optional)
             <select id="eq-sampleid"></select>
+          </label>
+        </div>
+        <div class="controls" id="eq-map-multi" hidden>
+          <label>Attribute column <select id="eq-attr"></select></label>
+          <label>Margin column, per attribute <select id="eq-margincol"></select></label>
+          <label>Target power for the whole claim
+            <select id="eq-power">
+              <option value="0.8" selected>80%</option>
+              <option value="0.9">90%</option>
+              <option value="0.95">95%</option>
+            </select>
           </label>
         </div>
         <div class="controls" id="eq-methods">
@@ -1351,6 +1373,7 @@
 <script src="variance.js"></script>
 <script src="variance-ui.js"></script>
 <script src="tolerance.js"></script>
+<script src="comparability.js"></script>
 <script src="ichq2.js"></script>
 <script src="tolerance-ui.js"></script>
 <script src="advisor.js"></script>

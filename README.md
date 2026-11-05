@@ -299,6 +299,7 @@ node --test tests/run-tests.js
 | `reliability.js` | Weibull maximum likelihood with right censoring, shape interval, hazard and survival curves, B10, probability-plot fit |
 | `particles.js` | Particle size distribution across bins: power-law and lognormal fits, nested tail-fraction test, extrapolation divergence |
 | `changepoint.js` | Regime detection: permutation-calibrated split search, binary segmentation, bootstrap position interval, last-regime statistics |
+| `comparability.js` | Multi-attribute comparability: intersection-union verdict, measured correlation between attributes, combined power and sizing for the whole claim |
 | `ichq2.js` | ICH Q2: linearity by lack-of-fit against pure error, LOD and LOQ with the sigma named, robustness with the smallest detectable effect |
 | `fold.js` | RNA secondary-structure free energy for the 5&prime; window, used by the codon optimizer |
 | `codon.js` | Genetic code, host codon-usage tables, CAI, GC windows, 5' folding, restriction sites |

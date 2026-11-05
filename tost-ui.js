@@ -43,9 +43,42 @@
       $(sel).innerHTML = (blank ? '<option value="">(none)</option>' : '') + cols.map(c => '<option' + (c === val ? ' selected' : '') + '>' + h(c) + '</option>').join('');
     };
     opt('eq-group', t.columns, groupCol); opt('eq-value', t.columns, valueCol); opt('eq-sampleid', t.columns, sampleCol, true);
+    /* The attribute column holds a handful of repeated names - Purity, Aggregate, Potency -
+       so it looks like the method column does. It is picked by name first and then by that
+       shape, excluding whichever column was already taken for the method. */
+    if ($('eq-attr')) {
+      const cand = t.columns.filter(c => c !== valueCol && c !== groupCol);
+      const byShape = cand.filter(c => { const i = t.columns.indexOf(c); const u = new Set(t.rows.map(r => String(r[i]).trim())).size; return u >= 2 && u <= 40; });
+      opt('eq-attr', t.columns, cand.find(c => ATTR.test(c)) || byShape[0] || cand[0] || valueCol);
+      /* A dozen attributes in a dozen different units cannot share one margin: a 2.5% band is
+         generous on a purity of 98% and a seventh of the noise on an aggregate of 1.1%. A real
+         transfer protocol declares a margin per attribute, so the column is read if it is
+         there, and the single margin below is only the fallback. */
+      if ($('eq-margincol')) {
+        const nums = prof.columns.filter(c => c.kind === 'numeric' && c.name !== valueCol).map(c => c.name);
+        opt('eq-margincol', nums, nums.find(c => MARGIN.test(c)) || '', true);
+      }
+    }
     $('eq-settings').hidden = false;
     fillMethods();
+    if ($('eq-what')) showWhat();
     describe();
+  }
+
+  const ATTR = /attribute|^cqa$|cqa|quality ?attribute|analyte|test|assay|parameter|measure(ment)?$|characteristic|method ?name|property/i;
+  const MARGIN = /margin|acceptance|allowance|tolerance|limit|criterion|criteria|band/i;
+  const multi = () => $('eq-what') && $('eq-what').value === 'multi';
+
+  function showWhat() {
+    const m = multi();
+    if ($('eq-map-multi')) $('eq-map-multi').hidden = !m;
+    if ($('eq-layout-wrap')) $('eq-layout-wrap').hidden = m;   // a transfer arrives as one long table
+    if (m && $('eq-layout').value !== 'one') { $('eq-layout').value = 'one'; showLayout(); }
+    ['eq-sample4', 'eq-sample5', 'eq-sample6'].forEach(id => { if ($(id)) $(id).hidden = !m; });
+    ['eq-sample', 'eq-sample2', 'eq-sample3'].forEach(id => { if ($(id)) $(id).hidden = m; });
+    $('eq-run').textContent = m ? 'Judge the whole transfer' : 'Test for equivalence';
+    $('eq-out').innerHTML = ''; $('eq-error').hidden = true;
+    if (table) describe();
   }
 
   /* One file per method is how the data usually arrives: each lab sends its own export.
@@ -139,12 +172,16 @@
     if (gi < 0 || vi < 0) throw new Error('Pick a method column and a result column.');
     if (gi === vi) throw new Error('The method column and the result column must be different.');
     const si = $('eq-sampleid').value ? table.columns.indexOf($('eq-sampleid').value) : -1;
+    const ai = multi() && $('eq-attr') && $('eq-attr').value ? table.columns.indexOf($('eq-attr').value) : -1;
+    if (multi() && ai < 0) throw new Error('Pick the column that names the attribute.');
+    if (multi() && (ai === gi || ai === vi)) throw new Error('The attribute column must be its own column, not the method or the result.');
     const out = [];
     let skipped = 0;
     table.rows.forEach(r => {
       const value = E.toNumber(r[vi]);
       if (value === null) { skipped++; return; }
-      out.push({ group: String(r[gi]).trim(), value, sample: si >= 0 ? String(r[si]).trim() : '' });
+      out.push({ group: String(r[gi]).trim(), value, sample: si >= 0 ? String(r[si]).trim() : '',
+        attribute: ai >= 0 ? String(r[ai]).trim() : '' });
     });
     if (!out.length) throw new Error('No numeric results found in "' + $('eq-value').value + '".');
     return { rows: out, skipped };
@@ -160,6 +197,17 @@
     try {
       const { rows, skipped } = readRows();
       const labels = Array.from(new Set(rows.map(r => r.group)));
+      if (multi()) {
+        const attrs = Array.from(new Set(rows.map(r => r.attribute).filter(Boolean)));
+        const perAttr = attrs.map(a => rows.filter(r => r.attribute === a).length);
+        const lo = perAttr.length ? Math.min.apply(null, perAttr) : 0;
+        $('eq-read').textContent = rows.length + ' results: ' + attrs.length + ' attribute' + (attrs.length === 1 ? '' : 's') +
+          ' (' + attrs.slice(0, 8).join(', ') + (attrs.length > 8 ? '\u2026' : '') + ') across ' + labels.length + ' site' + (labels.length === 1 ? '' : 's') +
+          ' (' + labels.slice(0, 4).join(', ') + '), ' + Math.round(lo / Math.max(1, labels.length)) + ' or more per attribute per site.' +
+          (attrs.length > 1 ? ' Requiring all ' + attrs.length + ' to pass needs no multiplicity correction, but it is far harder to achieve than any one of them - the run says by how much.' : '') +
+          (skipped ? ' ' + skipped + ' row' + (skipped === 1 ? '' : 's') + ' skipped (no number in the result column).' : '');
+        return;
+      }
       const pairs = pairableCount();
       $('eq-read').textContent = rows.length + ' results across ' + labels.length + ' method' + (labels.length === 1 ? '' : 's') + ' (' + labels.slice(0, 6).join(', ') + (labels.length > 6 ? '…' : '') + ').' +
         (pairs ? ' ' + pairs + ' sample' + (pairs === 1 ? '' : 's') + ' measured by both, so they can be paired.' : '') +
@@ -349,7 +397,172 @@
     return lines.join('\n');
   }
 
+  // ---------- a whole transfer: every attribute, one verdict ----------
+  /* The forest plot is the right picture here and the only one: each attribute's interval
+     against its own margin, scaled so every row is comparable. Scaled as a FRACTION of each
+     attribute's margin, because the attributes are in different units - a purity in percent
+     beside an aggregate in percent beside a potency in units cannot share an axis any other
+     way, and the question for every one of them is the same question: does it fit. */
+  function drawForest(el, r) {
+    const rows = r.attributes.filter(a => a.tost);
+    const W = Math.max(340, el.clientWidth || 700), L = 150, R = 56, T0 = 30, rowH = 30;
+    const H = T0 + rows.length * rowH + 42;
+    const span = Math.max(1.25, ...rows.map(a => Math.max(Math.abs(a.ciLow), Math.abs(a.ciHigh)) / a.margin * 1.12));
+    const sx = v => L + (v + span) / (2 * span) * (W - L - R);
+    let b = '<rect class="band" x="' + sx(-1) + '" y="' + T0 + '" width="' + (sx(1) - sx(-1)) + '" height="' + (rows.length * rowH + 6) + '"/>';
+    for (const v of [-1, 1]) b += '<line class="ref" x1="' + sx(v) + '" x2="' + sx(v) + '" y1="' + T0 + '" y2="' + (T0 + rows.length * rowH + 6) + '"/>';
+    b += '<line class="zero" x1="' + sx(0) + '" x2="' + sx(0) + '" y1="' + T0 + '" y2="' + (T0 + rows.length * rowH + 6) + '"/>';
+    b += '<text class="lbl-strong" x="' + sx(-1) + '" y="' + (T0 - 8) + '" text-anchor="middle">−margin</text>' +
+      '<text class="lbl-strong" x="' + sx(1) + '" y="' + (T0 - 8) + '" text-anchor="middle">+margin</text>';
+    rows.forEach((a, i) => {
+      const y = T0 + i * rowH + rowH / 2 + 3;
+      const cls = a.equivalent ? 'ok' : 'bad';
+      const lo = a.ciLow / a.margin, hi = a.ciHigh / a.margin, d = a.diff / a.margin;
+      const clamp = v => Math.max(-span, Math.min(span, v));
+      b += '<text x="' + (L - 10) + '" y="' + (y + 4) + '" text-anchor="end"' + (a.equivalent ? '' : ' class="lbl-strong"') + '>' + CH.esc(trunc(a.name, 22)) + '</text>';
+      b += '<g data-tip="' + CH.esc(a.name + '\n' + (a.equivalent ? 'inside its margin' : 'OUTSIDE its margin') + '\ndifference ' + f3(a.diff) + ', interval ' + f3(a.ciLow) + ' to ' + f3(a.ciHigh) + '\nmargin ±' + f3(a.margin) + '\nspent ' + Math.round(100 * a.spent) + '% of it') + '">';
+      b += '<rect class="hit" x="' + L + '" y="' + (y - rowH / 2) + '" width="' + (W - L - R) + '" height="' + rowH + '"/>';
+      b += '<line class="ci ' + cls + '" x1="' + sx(clamp(lo)) + '" x2="' + sx(clamp(hi)) + '" y1="' + y + '" y2="' + y + '"/>';
+      for (const v of [lo, hi]) b += '<line class="ci-cap ' + cls + '" x1="' + sx(clamp(v)) + '" x2="' + sx(clamp(v)) + '" y1="' + (y - 6) + '" y2="' + (y + 6) + '"/>';
+      b += '<circle class="ci-dot ' + cls + '" cx="' + sx(clamp(d)) + '" cy="' + y + '" r="4"/></g>';
+      b += '<text x="' + (W - R + 6) + '" y="' + (y + 4) + '">' + Math.round(100 * a.spent) + '%</text>';
+    });
+    b += '<text class="lbl-strong" x="' + ((L + W - R) / 2) + '" y="' + (H - 10) + '" text-anchor="middle">Difference as a fraction of each attribute’s own margin</text>';
+    el.innerHTML = '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Every attribute’s confidence interval against its own equivalence margin">' + b + '</svg>';
+    if (CH.bindTips) CH.bindTips(el);
+  }
+  const trunc = (v, n) => (String(v).length > n ? String(v).slice(0, n - 1) + '…' : String(v));
+
+  /* Three transfers, every one generated batch by batch so the attributes genuinely share
+     batch-level variation rather than being typed in as if they did. The third is the point
+     of the mode: sized from a per-attribute calculation, every attribute passes comfortably
+     on its own, and the chance of all of them passing is poor. */
+  function multiExample(kind) {
+    const rand = E.rng(kind === 'fail' ? 13 : kind === 'thin' ? 29 : 5);
+    const norm = () => { const u = Math.max(1e-12, rand()); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rand()); };
+    const ATTRS = [
+      ['Purity_Pct', 98.5, 0.45], ['Monomer_Pct', 97.2, 0.5], ['HMW_Aggregate_Pct', 1.1, 0.18],
+      ['LMW_Fragment_Pct', 0.7, 0.12], ['Acidic_Variants_Pct', 12.0, 0.9], ['Basic_Variants_Pct', 7.4, 0.7],
+      ['Main_Peak_Pct', 80.6, 1.1], ['Potency_Pct', 101.0, 3.2], ['Afucosylation_Pct', 4.2, 0.4],
+      ['G0F_Pct', 68.0, 2.1], ['Charge_Het_Pct', 18.5, 1.3], ['Host_Cell_Protein_ppm', 42.0, 6.0]
+    ];
+    const k = 12;
+    const n = 20;
+    const rho = 0.55;
+    /* The margin per attribute, as a multiple of that attribute's own standard deviation.
+       At 20 per site a margin of 0.94 sigma is exactly 80% power, so 1.45 sigma is a
+       comfortable protocol and 0.98 is a tight one - which is what makes the third example
+       the one worth looking at: every attribute passes on its own and the transfer still
+       probably fails. */
+    /* 0.94 sigma is exactly 80% single-attribute power at 20 per site, which is what a
+       per-attribute calculation would have sized this study for. Every attribute then passes
+       comfortably on its own and the chance of ALL twelve passing is poor - which is the
+       whole point of the third example, and the thing a dozen separate runs cannot show. */
+    const mult = kind === 'thin' ? 0.94 : 1.45;
+    const lines = ['Batch,Attribute,Site,Result,Margin'];
+    for (let i = 0; i < n; i++) {
+      // One shared batch effect per site, so every attribute on a batch moves together.
+      const sRef = norm(), sTest = norm();
+      ATTRS.slice(0, k).forEach(([name, mean, sd], j) => {
+        /* One attribute is genuinely shifted in the "fail" case, by a little over its
+           margin - the case where eleven separate runs would all have reported a pass. */
+        const shift = kind === 'fail' && name === 'Acidic_Variants_Pct' ? sd * 2.6 : 0;
+        const ref = mean + sd * (Math.sqrt(rho) * sRef + Math.sqrt(1 - rho) * norm());
+        const tst = mean + shift + sd * (Math.sqrt(rho) * sTest + Math.sqrt(1 - rho) * norm());
+        const dp = mean < 2 ? 3 : 2;
+        const mg = (sd * mult).toFixed(3);
+        lines.push(['B-' + String(i + 1).padStart(2, '0'), name, 'Site 1 (origin)', ref.toFixed(dp), mg].join(','));
+        lines.push(['B-' + String(i + 1).padStart(2, '0'), name, 'Site 2 (receiving)', tst.toFixed(dp), mg].join(','));
+      });
+    }
+    return lines.join('\n');
+  }
+
+  function runMulti() {
+    $('eq-error').hidden = true;
+    const CM = window.MLComparability;
+    if (!CM) return fail('The comparability module did not load.');
+    let got;
+    try { got = readRows(); } catch (e) { return fail(e.message); }
+    if ($('eq-ref').value === $('eq-test').value) return fail('The reference site and the site under test must be different.');
+    const opts = {
+      reference: $('eq-ref').value, test: $('eq-test').value,
+      margin: Number($('eq-margin').value), marginType: $('eq-margin-type').value,
+      alpha: Number($('eq-alpha').value),
+      power: Number($('eq-power') ? $('eq-power').value : 0.8),
+      reps: 2500, sizeReps: 900, maxN: 300
+    };
+    /* Per-attribute margins, in each attribute's own units, taken from the column where one
+       was given. A margin that disagrees between rows of the same attribute is a protocol
+       error rather than something to average, so it is refused. */
+    const mc = $('eq-margincol') && $('eq-margincol').value ? table.columns.indexOf($('eq-margincol').value) : -1;
+    const ai = table.columns.indexOf($('eq-attr').value);
+    if (mc >= 0) {
+      const margins = {}, clash = [];
+      table.rows.forEach(r => {
+        const a = String(r[ai]).trim(), m = E.toNumber(r[mc]);
+        if (!a || m === null) return;
+        if (margins[a] === undefined) margins[a] = Math.abs(m);
+        else if (Math.abs(Math.abs(m) - margins[a]) > 1e-9 && !clash.includes(a)) clash.push(a);
+      });
+      if (clash.length) return fail('The margin column gives more than one margin for ' + clash.join(', ') +
+        '. A margin is one number declared per attribute before the study; differing values in the same column are a protocol error rather than something to average.');
+      opts.margins = margins;
+      opts.marginType = 'absolute';
+    }
+    try {
+      renderMulti(CM.analyze(got.rows, opts));
+      $('eq-out').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (e) { fail(e.message); }
+  }
+
+  function renderMulti(r) {
+    const pct0 = v => (v === null || v === undefined || !isFinite(v) ? '–' : (100 * v).toFixed(0) + '%');
+    const k = r.usable;
+    const failing = r.attributes.filter(a => a.tost && !a.equivalent);
+    last = { kind: 'multi', r };
+
+    $('eq-out').innerHTML = '<div class="card"><h3>' + (r.allEquivalent ? 'Comparable on every attribute' : 'Not comparable as a whole') + '</h3>' +
+      '<div class="tiles">' +
+      '<div class="tile hero-tile"><div class="lbl">The whole transfer</div><div class="val">' + (r.allEquivalent ? 'Passes' : 'Fails') +
+        '</div><div class="sub">' + (r.allEquivalent ? 'all ' + k + ' attributes inside their margins' : failing.length + ' of ' + k + ' outside: ' + failing.slice(0, 3).map(a => a.name).join(', ') + (failing.length > 3 ? '…' : '')) + '</div></div>' +
+      '<div class="tile"><div class="lbl">Binding attribute</div><div class="val">' + CH.esc(trunc(r.binding.name, 16)) +
+        '</div><div class="sub">spent ' + Math.round(100 * r.binding.spent) + '% of its margin</div></div>' +
+      '<div class="tile"><div class="lbl">Chance all ' + k + ' pass</div><div class="val">' + pct0(r.combinedPower) +
+        '</div><div class="sub">weakest one alone: ' + pct0(r.weakestPerAttributePower) + '</div></div>' +
+      '<div class="tile"><div class="lbl">Per site for ' + pct0(r.targetPower) + ' on the whole claim</div><div class="val">' + (r.nForCombined === null ? '–' : r.nForCombined) +
+        '</div><div class="sub">' + (r.nPerAttributeWould === null ? 'per-attribute sizing unavailable' : 'attribute by attribute says ' + r.nPerAttributeWould) + '</div></div>' +
+      '</div>' +
+      '<div id="eq-forest" class="chart"></div>' +
+      '<div class="table-scroll"><table class="pm"><thead><tr><th>Attribute</th><th>Difference</th><th>' + Math.round(100 * (1 - 2 * r.alpha)) + '% interval</th><th>Margin</th><th>Margin spent</th><th>Verdict</th></tr></thead><tbody>' +
+      r.attributes.map(a => a.error
+        ? '<tr><td>' + CH.esc(a.name) + '</td><td colspan="5"><span class="hint">' + CH.esc(a.error) + '</span></td></tr>'
+        : '<tr' + (a.equivalent ? '' : ' class="hi"') + '><td>' + CH.esc(a.name) + '</td><td>' + f3(a.diff) + '</td><td>' + f3(a.ciLow) + ' to ' + f3(a.ciHigh) +
+          '</td><td>±' + f3(a.margin) + '</td><td>' + Math.round(100 * a.spent) + '%</td><td>' + (a.equivalent ? 'inside' : '<b>outside</b>') + '</td></tr>').join('') +
+      '</tbody></table></div>' +
+      '<p class="why">' + CH.esc(r.why) + '</p>' +
+      '<details class="howto" open><summary>How to read this, and what it changes</summary><div class="howto-body">' +
+      '<p><b>One verdict, and it is the weakest attribute’s verdict.</b> Requiring every attribute to pass is an intersection-union test, so the whole transfer is exactly as strong as its worst member — here <b>' + CH.esc(r.binding.name) +
+      '</b>, which has spent ' + Math.round(100 * r.binding.spent) + '% of its margin. That is the attribute to argue about, to add batches for, or to revisit the margin on. A dozen separate equivalence runs give you a dozen verdicts and never tell you which one the transfer rests on.</p>' +
+      '<p><b>Do not correct for multiplicity. This is the part that saves money.</b> The reflex with twelve tests is to split alpha twelve ways, and it is wrong here: to wrongly call the sites comparable you would have to wrongly pass <i>every</i> attribute, so the false-pass rate is at most ' + pct0(r.alpha) +
+      ' however many attributes there are. Measured with every attribute sitting exactly on its margin — the worst case — the rate does not creep up as attributes are added, it <b>falls</b>: about 4.6% at one attribute, 2.2% at three, 1.2% at twelve. A Bonferroni split would hold a twelve-attribute transfer to 0.42% when it is already stricter than that, and the extra batches that buys are batches nobody needed to make.</p>' +
+      '<p><b>The cost is in the power, and it is the opposite of intuitive.</b> Each attribute here passes on its own with probability up to ' + pct0(r.weakestPerAttributePower) +
+      ' for the weakest; all ' + k + ' passing together is <b>' + pct0(r.combinedPower) + '</b>. The usual quoted figure for twelve attributes each powered at 80% is 0.8¹², about 7% — and that is the <i>independence</i> case, which is the worst case. Quality attributes measured on the same batches share batch-level variation, so they tend to pass or fail together, and that <i>helps</i>: measured on simulated studies at 80% each, twelve attributes reach 10% at a correlation of 0.3, 24% at 0.6 and 52% at 0.9. ' +
+      (r.correlation.mean === null
+        ? 'The correlation could not be estimated here, so the attributes were treated as independent — the pessimistic end.'
+        : 'Yours correlate at about <b>' + r.correlation.mean.toFixed(2) + '</b> (' + CH.esc(r.correlation.basis) + '), which is why the figure above is ' + pct0(r.combinedPower) + ' rather than the ' + pct0(r.independentPower) + ' independence would have predicted.') + '</p>' +
+      '<p><b>So size for the whole claim, not for one attribute.</b> ' + (r.nForCombined === null
+        ? 'A size for the combined claim could not be found below 300 per site, which usually means a margin is too tight for the spread rather than that the study is genuinely enormous — check the binding attribute’s margin against what its own data says is achievable.'
+        : 'For ' + pct0(r.targetPower) + ' confidence of passing the whole transfer you need about <b>' + r.nForCombined + ' per site</b>' +
+          (r.nPerAttributeWould === null ? '.' : ', against the ' + r.nPerAttributeWould + ' a per-attribute calculation on the worst single attribute asks for — so sizing attribute by attribute understates this study by about ' + (r.nForCombined / r.nPerAttributeWould).toFixed(1) + ' times. That is the number to take to the people booking the batches.') ) + '</p>' +
+      '<p><b>What this does not cover.</b> The margins are yours and the tool will not invent one — an attribute with no margin is listed as untested rather than quietly dropped' + (r.anyUntested ? ', and ' + r.untested + ' here ' + (r.untested === 1 ? 'is' : 'are') : '') + '. A margin chosen after seeing the data is not a test. Two sites are compared at a time: three sites at once is a different claim needing a different margin. And failing to find a difference is never evidence of sameness, which is the whole reason this is an equivalence test and not a t-test — the combined power above is what says whether a pass meant anything.</p>' +
+      '</div></details></div>';
+
+    drawForest($('eq-forest'), r);
+  }
+
   function run() {
+    if (multi()) return runMulti();
     $('eq-error').hidden = true;
     let rows, opts;
     try { rows = readRows(); opts = readOpts(); } catch (e) { return fail(e.message); }
@@ -387,6 +600,20 @@
     $('eq-sample').addEventListener('click', () => load(example('pass'), 2));
     $('eq-sample2').addEventListener('click', () => load(example('bias'), 2));
     $('eq-sample3').addEventListener('click', () => load(example('thin'), 2));
+    if ($('eq-sample4')) {
+      /* The transfer examples carry a 2.5% margin, which is a realistic acceptance band for
+         a site transfer across this mix of attributes. The mode is switched before loading,
+         because the attribute column only gets guessed while the mode is multi. */
+      const loadMulti = kind => { if ($('eq-what').value !== 'multi') { $('eq-what').value = 'multi'; showWhat(); } load(multiExample(kind)); };
+      $('eq-sample4').addEventListener('click', () => loadMulti('pass'));
+      $('eq-sample5').addEventListener('click', () => loadMulti('fail'));
+      $('eq-sample6').addEventListener('click', () => loadMulti('thin'));
+      $('eq-what').addEventListener('change', showWhat);
+      $('eq-attr').addEventListener('change', describe);
+      if ($('eq-margincol')) $('eq-margincol').addEventListener('change', describe);
+      if ($('eq-power')) $('eq-power').addEventListener('change', () => {});
+      showWhat();
+    }
     $('eq-clear').addEventListener('click', clear);
     $('eq-data').addEventListener('change', () => { if ($('eq-data').value.trim()) { $('delete-top').hidden = false; loadText($('eq-data').value); } });
     $('eq-file').addEventListener('change', e => {
