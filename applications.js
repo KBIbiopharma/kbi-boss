@@ -540,8 +540,7 @@
       gaps: [
         'No spectra, chromatograms or images. Everything arrives as computed numbers.',
         'No attribute agreement for more than eight possible calls: a judgement with dozens of categories is closer to a measurement and the method does not apply.',
-        'A distribution-free bound exists now, but it needs 299 results for a one-sided 99% claim at 95% confidence against about ten for the normal factor, so for a typical method-validation dataset the honest answer is still that the claim cannot be supported.',
-        'Linearity, LOD and LOQ are not implemented as named ICH Q2 calculations.'
+        'A distribution-free bound exists now, but it needs 299 results for a one-sided 99% claim at 95% confidence against about ten for the normal factor, so for a typical method-validation dataset the honest answer is still that the claim cannot be supported.'
       ]
     },
     msat: {
@@ -619,7 +618,6 @@
       gaps: [
         'No instrument files. Chromatograms, spectra and plate images have to be reduced to numbers first.',
         'No OOS workflow, no trending database, no stability scheduling: this computes on a file, it does not manage a programme.',
-        'No ICH Q2 validation package - no linearity, LOD, LOQ or robustness as named calculations.',
         'The distribution-free bound needs 299 results for a one-sided 99% claim, so a skewed assay with thirty results still gets a refusal - now with the number of results that would change the answer attached to it.'
       ]
     },

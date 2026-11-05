@@ -20,7 +20,7 @@ validation project.
 
 ## What has been delivered since this evaluation was first written
 
-Two class A gaps are closed: the **rare-event chart** and **CUSUM and EWMA**. Their rows below are marked
+Three class A gaps are closed: the **rare-event chart**, **CUSUM and EWMA**, and the **ICH Q2 calculations**. Their rows below are marked
 delivered and their department bullets are gone. The build fails if any gap here claims a capability the
 code can be shown to have, so this section cannot silently go stale again.
 
@@ -33,7 +33,7 @@ code can be shown to have, so this section cannot silently go stale again.
 | **Live connections** (historian, BMS, SCADA, LIMS) | B | GMP manufacturing, facilities, QC, MSAT | Export-and-load is the deliberate design. A live connection means a server, credentials and a validation burden. |
 | **CUSUM and EWMA** | A | GMP manufacturing, and useful to facilities and microbiology | **Delivered.** Both run beside the individuals chart at a matched false-alarm rate, with the baseline stated and the start of the drift estimated. At a one-sigma shift these signal after about 10 points against 45 for a three-sigma chart. |
 | **Time-series forecasting and backtesting** | A | Upstream process development, GMP manufacturing | The tool projects a trend to a specification (ICH Q1E) and detects that a level has moved (CUSUM, EWMA), but it cannot forecast a trajectory forward and nothing measures forecast accuracy. The bounded build is a rolling-origin backtest with a seasonal-naive baseline, exponential smoothing with a damped trend, and conformal forecast intervals. Build the backtest first: it is what lets any method, including a bought-in model, be held to a measured number on this site's own data rather than a vendor's. |
-| **ICH Q2 calculations** (linearity, LOD, LOQ, robustness) | A | AFS, QC | Two departments ask for the same named set. Mechanical to implement and easy to validate against published examples. |
+| **ICH Q2 calculations** (linearity, LOD, LOQ, robustness) | A | AFS, QC | **Delivered.** On the limits bench, as a third mode. Linearity is judged by a lack-of-fit test against the method's own repeat error, or by a fitted squared term where no level was replicated - not by r-squared, which reads 0.995 on a curve that visibly bends and is the example the panel ships with. The limits name which of the three sigmas they used and whether the quantitation limit falls anywhere near a standard anybody ran. Robustness reports the smallest effect the design could have detected beside every p-value, so an underpowered study reads as uninformative rather than as a pass. |
 | **Reliability distributions** (Weibull, hazard, survival) | A | Facilities | MTBF work is currently limited to trends and comparisons. Self-contained. |
 | **Size distribution across bins** | A | Particle characterization | Counts per bin are handled as counts, with nothing modelled over the bin structure. |
 | **Capability across sites in one step** | A | MSAT | Small. Run per site and compare today. |
@@ -103,7 +103,6 @@ The strongest fit in the tool: tolerance intervals, power, agreement, shelf life
 - **[B]** No spectra, chromatograms or images. Everything arrives as computed numbers.
 - **[C]** No attribute agreement for more than eight possible calls: a judgement with dozens of categories is closer to a measurement and the method does not apply.
 - **[—]** A distribution-free bound exists now, but it needs 299 results for a one-sided 99% claim at 95% confidence against about ten for the normal factor, so for a typical method-validation dataset the honest answer is still that the claim cannot be supported.
-- **[A]** Linearity, LOD and LOQ are not implemented as named ICH Q2 calculations.
 
 
 ### Quality control
@@ -112,7 +111,6 @@ Covered for trending, capability and agreement. The gaps are workflow (class C) 
 
 - **[B]** No instrument files. Chromatograms, spectra and plate images have to be reduced to numbers first.
 - **[C]** No OOS workflow, no trending database, no stability scheduling: this computes on a file, it does not manage a programme.
-- **[A]** No ICH Q2 validation package - no linearity, LOD, LOQ or robustness as named calculations.
 - **[—]** The distribution-free bound needs 299 results for a one-sided 99% claim, so a skewed assay with thirty results still gets a refusal - now with the number of results that would change the answer attached to it.
 
 

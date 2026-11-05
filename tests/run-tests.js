@@ -5560,7 +5560,7 @@ test('no gap claims a capability the code already has', () => {
     { what: 'reliability distributions', claim: /\bno reliability distributions|\bno Weibull fitting/i, built: () => has(SPC.weibull) || has(SPC.hazard) },
     { what: 'capability across sites in one step', claim: /\bno process capability modelling across sites/i, built: () => has(SPC.crossSite) || has(SPC.acrossSites) },
     { what: 'a size distribution across the bins', claim: /\bno size distribution fitted across the bins/i, built: () => has(SPC.sizeDistribution) || has(SPC.binnedSize) },
-    { what: 'the named ICH Q2 calculations', claim: /LOD and LOQ are not implemented|\bno ICH Q2 validation package/i, built: () => has(TOL.linearity) || has(TOL.lod) || has(TOL.loq) },
+    { what: 'the named ICH Q2 calculations', claim: /LOD and LOQ are not implemented|\bno ICH Q2 validation package/i, built: () => fs.existsSync(path.join(ROOT, 'ichq2.js')) },
     { what: 'forecasting a trajectory forward', claim: /does not fit kinetics or forecast a trajectory forward/i, built: () => fs.existsSync(path.join(ROOT, 'forecast.js')) }
   ];
 
@@ -5588,4 +5588,121 @@ test('no gap claims a capability the code already has', () => {
   for (const [key, label] of apps.FUNCTIONS) {
     assert.ok(apps.PLAYBOOKS[key].gaps.length > 0, label + ' has no gaps left, which is never true and reads as a bug');
   }
+});
+
+/* tQuantile takes a TAIL AREA, not a cumulative probability: tQuantile(0.025, 4) is 2.776.
+   Passing 0.975 to it returns essentially zero, and a zero t turns every confidence interval
+   into a point and every minimum detectable effect into nothing. It fails silently and in
+   the reassuring direction - intervals look precise, underpowered studies look conclusive.
+   It was shipped that way in the confidence-intervals lesson, whose demo was therefore
+   drawing intervals that could never contain the truth, in a lesson about intervals
+   containing the truth. This pins the convention and catches the next one by inspection. */
+test('tQuantile is called with a tail area everywhere it is used', () => {
+  for (const [tail, df, want] of [[0.025, 4, 2.776], [0.05, 4, 2.132], [0.1, 4, 1.533], [0.2, 4, 0.941], [0.05, 10, 1.812]]) {
+    assert.ok(Math.abs(E.tQuantile(tail, df) - want) < 0.002,
+      'tQuantile(' + tail + ', ' + df + ') should be ' + want + ', got ' + E.tQuantile(tail, df).toFixed(4));
+  }
+  /* A tail area above 0.5 is almost certainly a cumulative probability passed by mistake:
+     it asks for a t below the median, which no interval or power calculation wants. */
+  const bad = [];
+  for (const f of fs.readdirSync(ROOT).filter(f => /\.js$/.test(f))) {
+    fs.readFileSync(path.join(ROOT, f), 'utf8').split('\n').forEach((line, i) => {
+      for (const m of line.matchAll(/tQuantile\(\s*([0-9.]+)\s*,/g)) {
+        if (Number(m[1]) > 0.5) bad.push(f + ':' + (i + 1) + ' tQuantile(' + m[1] + ', ...)');
+      }
+      if (/tQuantile\(\s*1\s*-\s*[^,)]*\/\s*2\s*,/.test(line)) bad.push(f + ':' + (i + 1) + ' tQuantile(1 - alpha/2, ...)');
+    });
+  }
+  assert.deepStrictEqual(bad, [], 'these pass a cumulative probability where a tail area is wanted: ' + bad.join('; '));
+});
+
+/* ICH Q2: linearity, detection and quantitation limits, robustness. Each of the three has a
+   standard way of being reported that is wrong, and the tests are mostly about those. */
+test('ICH Q2 linearity tests the shape, not the correlation', () => {
+  const Q = require(path.join(ROOT, 'ichq2.js'));
+  const x = [50, 75, 100, 125, 150];
+
+  const lin = Q.linearity(x, x.map(v => 2.5 * v + 10));
+  assert.ok(Math.abs(lin.slope - 2.5) < 1e-9 && Math.abs(lin.intercept - 10) < 1e-7, 'noiseless slope and intercept must come back exactly');
+  assert.ok(lin.linear && lin.r2 > 0.9999);
+
+  /* The trap, and the reason this function exists. A gentle bend at the top of the range
+     returns r-squared of 0.995 - through any "r2 > 0.99" criterion - while visibly curving. */
+  const bent = Q.linearity(x, x.map(v => 2.5 * v + 10 - 0.004 * v * v));
+  assert.ok(bent.r2 > 0.99, 'the trap needs a high r-squared to be a trap; got ' + bent.r2.toFixed(5));
+  assert.strictEqual(bent.linear, false, 'r-squared ' + bent.r2.toFixed(5) + ' but the response bends, and it was not caught');
+  assert.ok(bent.curvature.p < 0.001, 'the squared term must be clearly needed, p = ' + bent.curvature.p);
+  assert.ok(/r² on its own never is/.test(bent.why), 'and it must say why r-squared is not the test');
+
+  const xr = [], yr = [];
+  for (const v of x) for (const d of [-0.3, 0.3]) { xr.push(v); yr.push(2.5 * v + 10 - 0.004 * v * v + d); }
+  const lof = Q.linearity(xr, yr);
+  assert.ok(lof.lackOfFit && lof.lackOfFit.p < 0.001, 'lack of fit must catch the same curve');
+  assert.strictEqual(lof.linear, false);
+  assert.ok(/repeat error/.test(lof.why), 'and must explain what it compared against');
+  const ys = xr.map((v, i) => 2.5 * v + 10 + (i % 2 ? 0.3 : -0.3));
+  assert.strictEqual(Q.linearity(xr, ys).linear, true, 'a straight line with repeat error must not be called curved');
+
+  assert.throws(() => Q.linearity([1, 2, 3], [1, 2, 3]), /at least 5 points/);
+  assert.throws(() => Q.linearity([1, 1, 1, 2, 2], [1, 1, 1, 2, 2]), /only 2 distinct concentrations/);
+  /* Three levels can be fitted and tested, so refusing them would be over-strict - but the
+     guideline asks for five, and a study that falls short has to say so itself. */
+  const thin = Q.linearity([1, 1, 2, 2, 3], [2.1, 1.9, 4.1, 3.9, 6.0]);
+  assert.strictEqual(thin.meetsGuideline, false);
+  assert.ok(/ICH Q2 asks for a minimum of 5/.test(thin.why), 'a 3-level study must declare its own shortfall');
+  assert.strictEqual(Q.linearity([50, 75, 100, 125, 150], [1, 2, 3, 4, 5]).meetsGuideline, true);
+});
+
+test('ICH Q2 limits say which sigma they used and whether anyone measured there', () => {
+  const Q = require(path.join(ROOT, 'ichq2.js'));
+  const lin = { slope: 2.0, residualSd: 0.5, interceptSe: 0.9, range: [50, 150] };
+  const d = Q.detectionLimits(lin);
+  assert.ok(Math.abs(d.lod - 3.3 * 0.5 / 2) < 1e-12, 'LOD is 3.3 sigma / slope');
+  assert.ok(Math.abs(d.loq - 10 * 0.5 / 2) < 1e-12, 'LOQ is 10 sigma / slope');
+  assert.ok(/residual standard deviation/.test(d.sigmaSource), 'the sigma used must be named');
+
+  assert.strictEqual(d.loqInRange, false);
+  assert.ok(/OUTSIDE the range that was measured/.test(d.why), 'an out-of-range limit must say so');
+  assert.ok(/confirmed by analysing samples/.test(d.why), 'and name what would make it a validated limit');
+  assert.strictEqual(d.confirmed, false, 'nothing computed here is a confirmed limit');
+
+  const byIntercept = Q.detectionLimits(lin, { sigma: 'intercept' });
+  assert.ok(Math.abs(byIntercept.loq - 10 * 0.9 / 2) < 1e-12);
+  assert.ok(/y-intercept/.test(byIntercept.sigmaSource));
+  assert.notStrictEqual(byIntercept.loq, d.loq, 'the three sigmas do not agree, which is the point of naming one');
+
+  const near = Q.detectionLimits({ slope: 2.0, residualSd: 0.5, interceptSe: 0.9, range: [1, 150] });
+  assert.strictEqual(near.loqInRange, true);
+  assert.ok(/inside the range that was actually measured/.test(near.why));
+
+  assert.throws(() => Q.detectionLimits({ slope: 0, residualSd: 1, range: [1, 2] }), /slope is zero/);
+  assert.throws(() => Q.detectionLimits({ slope: 2, residualSd: 0, range: [1, 2] }), /noiseless/);
+});
+
+test('ICH Q2 robustness reports what the study could have detected, not just what it did', () => {
+  const Q = require(path.join(ROOT, 'ichq2.js'));
+  const rng = E.rng(7);
+  const nz = () => { let u = 0, v = 0; while (!u) u = rng(); while (!v) v = rng(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+  const mk = (eff, sd) => {
+    const L = [-1, 1], runs = [];
+    for (const a of L) for (const b of L) for (const c of L) {
+      runs.push({ factors: { pH: a === 1 ? 3.1 : 2.9, temp: b === 1 ? 32 : 28, flow: c === 1 ? 1.05 : 0.95 }, response: 100 + eff * a + nz() * sd });
+    }
+    return runs;
+  };
+
+  const real = Q.robustness(mk(3.0, 0.3), { acceptable: 1.0 });
+  assert.ok(/not robust to pH/.test(real.verdict), 'a 3-unit effect on 8 runs must be caught: ' + real.verdict);
+  assert.strictEqual(real.effects[0].factor, 'pH', 'and ranked first by size');
+
+  /* The whole point. Noisy runs find nothing, and "found nothing" must not be reported as
+     robust when the study could not have seen an effect that mattered. */
+  const quiet = Q.robustness(mk(0, 2.0), { acceptable: 0.5 });
+  assert.strictEqual(quiet.verdict, 'uninformative', 'an underpowered study is not a pass: ' + quiet.verdict);
+  assert.ok(quiet.underpowered && quiet.minimumDetectableEffect > 0.5);
+  assert.ok(/statement about the study, not about the method/.test(quiet.why));
+
+  assert.ok(/no acceptable limit was given/i.test(Q.robustness(mk(0, 1.0), {}).verdict));
+  assert.throws(() => Q.robustness(mk(2.0, 0), { acceptable: 1 }), /no residual error/);
+  assert.throws(() => Q.robustness([{ factors: { a: 1 }, response: 1 }], {}), /at least 4 runs/);
 });

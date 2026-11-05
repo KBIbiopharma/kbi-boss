@@ -16,6 +16,10 @@
   const f4 = v => (v === null || !isFinite(v) ? '–' : Number(v).toFixed(4));
   const pc = v => (v === null || !isFinite(v) ? '–' : (Number(v) * 100).toFixed(1) + '%');
   const pFmt = p => (p === null || p === undefined || !isFinite(p) ? '–' : p < 0.0001 ? '<0.0001' : p.toFixed(4));
+  /* A detection limit can be 0.0008 or 85 depending on the method, so the ICH Q2 panel
+     formats to significant figures rather than to a fixed number of decimals. */
+  const q2f = v => (v === null || v === undefined || !isFinite(v) ? '–'
+    : Number(v).toPrecision(4).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, ''));
   const mode = () => $('tl-mode').value;
   const design = () => $('tl-design').value;
   const num = id => { const v = String($(id).value).trim(); if (!v) return null; const x = Number(v.replace(/,/g, '')); return isFinite(x) ? x : NaN; };
@@ -33,7 +37,8 @@
 
   const MODE_DESC = {
     spec: 'Builds an interval that covers a stated share of future production with stated confidence, then checks it against the limits you already have.',
-    size: 'Works out the smallest study that has a fair chance of answering the question, before anyone books instrument time.'
+    size: 'Works out the smallest study that has a fair chance of answering the question, before anyone books instrument time.',
+    ichq2: 'The named ICH Q2 calculations. Linearity is judged by whether a straight line misses by more than the method\u2019s own repeat error, not by r\u00b2; the limits say which sigma they came from and whether anybody measured near them; robustness reports the smallest effect the study could have seen.'
   };
   const DESIGN_DESC = {
     tost: 'Two one-sided tests. You must declare a margin first: how big a difference you are willing to call unimportant. This is the calculation the method-transfer tool refers to when it says a study was too small.',
@@ -53,6 +58,16 @@
     if (!numeric.length) return fail('No numeric column found. One column needs to hold the results.');
     const pick = numeric.find(c => VALUE.test(c)) || numeric[numeric.length - 1];
     $('tl-value').innerHTML = numeric.map(c => '<option' + (c === pick ? ' selected' : '') + '>' + h(c) + '</option>').join('');
+    /* The ICH Q2 mode needs two columns rather than one, and its robustness form treats
+       every column but the response as a method parameter. */
+    const opts = sel => numeric.map(c => '<option' + (c === sel ? ' selected' : '') + '>' + h(c) + '</option>').join('');
+    if ($('q2-conc')) {
+      const conc = numeric.find(c => /conc|level|nominal|amount|standard|ppm|mg|ug/i.test(c)) || numeric[0];
+      const resp = numeric.find(c => c !== conc && (VALUE.test(c) || /area|signal|absorb|peak|resp/i.test(c))) || numeric.find(c => c !== conc) || numeric[0];
+      $('q2-conc').innerHTML = opts(conc);
+      $('q2-resp').innerHTML = opts(resp);
+      $('q2-rob-resp').innerHTML = opts(pick);
+    }
     $('tl-settings').hidden = false;
     $('tl-error').hidden = true;
     describe();
@@ -328,14 +343,82 @@
     return lines.join('\n');
   }
 
+  // ---------- ICH Q2 ----------
+  function showQ2() {
+    const what = $('q2-what') ? $('q2-what').value : 'lin';
+    if ($('q2-lin-fields')) $('q2-lin-fields').hidden = what !== 'lin';
+    if ($('q2-rob-fields')) $('q2-rob-fields').hidden = what !== 'rob';
+    $('tl-out').innerHTML = ''; $('tl-error').hidden = true;
+  }
+
+  function columnOf(name) {
+    const i = table.columns.indexOf(name);
+    if (i < 0) throw new Error('Pick the column holding ' + name + '.');
+    return table.rows.map(r => E.toNumber(r[i]));
+  }
+
+  function runQ2() {
+    $('tl-error').hidden = true;
+    const Q = window.MLIchQ2;
+    if (!Q) return fail('The ICH Q2 module did not load.');
+    if (!table) return fail('Load the data first.');
+    try {
+      if ($('q2-what').value === 'rob') return renderRobustness(Q);
+      const cn = $('q2-conc').value, rn = $('q2-resp').value;
+      if (cn === rn) return fail('The concentration and the response have to be different columns.');
+      const pairs = columnOf(cn).map((c, i) => [c, columnOf(rn)[i]]).filter(p => p[0] !== null && p[1] !== null);
+      const lin = Q.linearity(pairs.map(p => p[0]), pairs.map(p => p[1]));
+      const lim = Q.detectionLimits(lin, { sigma: $('q2-sigma').value });
+      renderQ2(lin, lim, cn, rn);
+    } catch (e) { fail(e.message); }
+  }
+
+  function renderQ2(lin, lim, cn, rn) {
+    const verdict = lin.linear ? 'Linear over this range' : 'Not linear over this range';
+    $('tl-out').innerHTML = '<div class="card tl-result"><h3>Linearity, and the limits that follow from it</h3>' +
+      '<div class="tiles">' +
+      tile('Verdict', verdict, lin.lackOfFit ? 'from the lack-of-fit test' : lin.curvature ? 'from a fitted squared term' : 'shape not testable', true) +
+      tile('Slope', q2f(lin.slope), rn + ' per unit ' + cn) +
+      tile('Intercept', q2f(lin.intercept), lin.interceptPctOfTop === null ? '' : q2f(lin.interceptPctOfTop) + '% of the top standard') +
+      tile('r\u00b2', lin.r2.toFixed(5), 'not the test, and never was') +
+      tile('Residual SD', q2f(lin.residualSd), lin.n + ' points, ' + lin.levels + ' levels') +
+      tile('LOD', q2f(lim.lod), '3.3 sigma / slope') +
+      tile('LOQ', q2f(lim.loq), lim.loqInRange ? 'inside the measured range' : 'BELOW the lowest standard') +
+      '</div>' +
+      '<p class="why">' + h(lin.why) + '</p><p class="why">' + h(lim.why) + '</p></div>';
+    $('tl-out').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function renderRobustness(Q) {
+    const rn = $('q2-rob-resp').value;
+    const ri = table.columns.indexOf(rn);
+    const runs = table.rows.map(r => {
+      const factors = {};
+      table.columns.forEach((c, i) => { if (i !== ri) factors[c] = r[i]; });
+      return { factors, response: E.toNumber(r[ri]) };
+    }).filter(r => r.response !== null);
+    const accRaw = $('q2-acceptable').value;
+    const res = Q.robustness(runs, { acceptable: accRaw === '' ? null : Number(accRaw) });
+    $('tl-out').innerHTML = '<div class="card tl-result"><h3>Robustness</h3><div class="tiles">' +
+      tile('Verdict', res.verdict, res.n + ' runs, ' + res.factors + ' parameters', true) +
+      tile('Smallest detectable effect', q2f(res.minimumDetectableEffect), res.acceptable === null ? 'no acceptable effect given' : 'against ' + q2f(res.acceptable) + ' acceptable') +
+      '</div><div class="table-scroll"><table class="pm"><thead><tr><th>Parameter</th><th>Low</th><th>High</th><th>Effect</th><th>95% interval</th><th>p</th></tr></thead><tbody>' +
+      res.effects.map(e => '<tr><td>' + h(e.factor) + '</td><td>' + h(String(e.low)) + '</td><td>' + h(String(e.high)) + '</td><td>' + q2f(e.effect) +
+        '</td><td>' + q2f(e.ci[0]) + ' to ' + q2f(e.ci[1]) + '</td><td>' + (e.p < 0.001 ? '&lt;0.001' : e.p.toFixed(3)) + '</td></tr>').join('') +
+      '</tbody></table></div><p class="why">' + h(res.why) + '</p></div>';
+    $('tl-out').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
   // ---------- wiring ----------
   function showMode() {
     const m = mode();
     $('tl-mode-desc').textContent = MODE_DESC[m];
     $('tl-spec').hidden = m !== 'spec';
-    $('tl-size').hidden = m === 'spec';
+    $('tl-size').hidden = m !== 'size';
+    if ($('tl-ichq2')) $('tl-ichq2').hidden = m !== 'ichq2';
     $('tl-out').innerHTML = ''; $('tl-error').hidden = true;
     if (m === 'size') showDesign();
+    if (m === 'ichq2') showQ2();
   }
   function showDesign() {
     const d = design();
@@ -426,6 +509,36 @@
   function init() {
     showMode();
     $('tl-mode').addEventListener('change', showMode);
+    if ($('q2-what')) $('q2-what').addEventListener('change', showQ2);
+    if ($('q2-run')) $('q2-run').addEventListener('click', runQ2);
+    if ($('q2-data')) {
+      $('q2-data').addEventListener('change', () => { if ($('q2-data').value.trim()) loadText($('q2-data').value); });
+      $('q2-file').addEventListener('change', e => {
+        const f = e.target.files[0]; if (!f) return;
+        const fr = new FileReader();
+        fr.onload = () => { $('q2-data').value = String(fr.result).slice(0, 200000); loadText(String(fr.result)); };
+        fr.readAsText(f);
+      });
+      /* The example is the trap itself: a calibration curve that returns r-squared above
+         0.99 and is not linear. Reading it off the screen is the point of the panel. */
+      $('q2-ex1').addEventListener('click', () => {
+        const lines = ['Concentration,PeakArea'];
+        for (const c of [50, 50, 75, 75, 100, 100, 125, 125, 150, 150]) {
+          const i = lines.length;
+          lines.push(c + ',' + (2.5 * c + 10 - 0.004 * c * c + (i % 2 ? 0.3 : -0.3)).toFixed(2));
+        }
+        $('q2-data').value = lines.join('\n'); $('q2-what').value = 'lin'; showQ2(); loadText($('q2-data').value);
+      });
+      $('q2-ex2').addEventListener('click', () => {
+        const rows = ['pH,Temperature,FlowRate,Assay'];
+        const r = E.rng(7);
+        const nz = () => { let u = 0, v = 0; while (!u) u = r(); while (!v) v = r(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+        for (const a of [-1, 1]) for (const b of [-1, 1]) for (const c of [-1, 1]) {
+          rows.push([a === 1 ? 3.1 : 2.9, b === 1 ? 32 : 28, c === 1 ? 1.05 : 0.95, (100 + nz() * 2).toFixed(2)].join(','));
+        }
+        $('q2-data').value = rows.join('\n'); $('q2-what').value = 'rob'; $('q2-acceptable').value = '0.5'; showQ2(); loadText($('q2-data').value);
+      });
+    }
     $('tl-design').addEventListener('change', showDesign);
     // Each example carries the limits it was built to illustrate.
     $('tl-ex1').addEventListener('click', () => load(example(1), 96, 100));

@@ -656,6 +656,7 @@
           <select id="tl-mode">
             <option value="spec" selected>Set or defend a specification limit (tolerance interval)</option>
             <option value="size">Work out how many results a study needs (power)</option>
+            <option value="ichq2">Validate a method (ICH Q2: linearity, LOD, LOQ, robustness)</option>
           </select>
         </label>
       </div>
@@ -767,6 +768,46 @@
       </div>
 
       <p class="error" id="tl-error" role="alert" hidden></p>
+      <div id="tl-ichq2" hidden>
+        <p class="summary">Method validation to ICH Q2. Load the calibration standards as two numeric columns, or a robustness run sheet with one column per method parameter. <a class="learn-link" href="learn.html#correlation" target="_blank" rel="noopener noreferrer">Why r&sup2; is not linearity &#8599;</a></p>
+        <div class="field-row">
+          <label>What to work out
+            <select id="q2-what">
+              <option value="lin" selected>Linearity, LOD and LOQ, from calibration standards</option>
+              <option value="rob">Robustness, from a run sheet of deliberate variations</option>
+            </select>
+          </label>
+        </div>
+        <div id="q2-lin-fields">
+          <div class="field-row">
+            <label>Concentration column <select id="q2-conc"></select></label>
+            <label>Response column <select id="q2-resp"></select></label>
+            <label>Sigma for the limits
+              <select id="q2-sigma">
+                <option value="residual" selected>Residual standard deviation of the regression</option>
+                <option value="intercept">Standard error of the y-intercept</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        <div id="q2-rob-fields" hidden>
+          <div class="field-row">
+            <label>Response column <select id="q2-rob-resp"></select></label>
+            <label>Effect you would call acceptable <input type="number" id="q2-acceptable" step="any" placeholder="e.g. 1.0"></label>
+          </div>
+          <p class="hint">Every other column is treated as a method parameter, and each must have exactly two deliberate settings. The acceptable effect is what turns "nothing found" into a result rather than a shrug.</p>
+        </div>
+        <div class="row-actions">
+          <button class="btn ghost small" id="q2-ex1" type="button">Example: a curve that passes on r&sup2;</button>
+          <button class="btn ghost small" id="q2-ex2" type="button">Example: a robustness study too small to tell</button>
+        </div>
+        <label class="paste">Paste the standards, or load a file
+          <textarea id="q2-data" rows="6" spellcheck="false" placeholder="Concentration,PeakArea&#10;50,135.2&#10;75,197.6&#10;100,258.1"></textarea>
+        </label>
+        <input type="file" id="q2-file" accept=".csv,.tsv,.txt,.json,.ndjson" class="file-input">
+        <div class="row-actions"><button class="btn primary" id="q2-run" type="button">Validate</button></div>
+      </div>
+
       <div id="tl-out"></div>
     </div>
   </section>
@@ -1260,6 +1301,7 @@
 <script src="variance.js"></script>
 <script src="variance-ui.js"></script>
 <script src="tolerance.js"></script>
+<script src="ichq2.js"></script>
 <script src="tolerance-ui.js"></script>
 <script src="advisor.js"></script>
 <script src="advisor-eval.js"></script>

@@ -261,7 +261,7 @@
         const n = Number(q(el, 'n').value);
         for (let k = 0; k < 25; k++) {
           const y = range(n).map(() => TRUE + normal(rand) * SIGMA);
-          const m = E.mean(y), se = E.sd(y) / Math.sqrt(n), t = E.tQuantile(0.975, n - 1);
+          const m = E.mean(y), se = E.sd(y) / Math.sqrt(n), t = E.tQuantile(0.025, n - 1);
           const lo = m - t * se, hi = m + t * se;
           runs.push({ m, lo, hi, miss: TRUE < lo || TRUE > hi });
         }
