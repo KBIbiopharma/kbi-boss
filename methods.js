@@ -177,7 +177,7 @@
       inputs: 'Variable: two sets of results, paired or unpaired. An equivalence margin, declared before looking.',
       outputs: 'Both one-sided p-values, the interval for the difference, a verdict of equivalent, different or inconclusive, and the sample size that would settle it.' },
     { tool: 'variance',
-      what: 'Random-effects ANOVA, Gage R&R and attribute agreement: where the spread comes from, and whether the measurement can see it.',
+      what: 'Random-effects ANOVA, Gage R&R, attribute agreement, capability across sites and subgroup control charts: everything that starts with a grouping column and a result column.',
       where: 'Measurement system analysis; lot-to-lot questions; qualifying an inspector or a classifier against a known standard.',
       inputs: 'A variable response with the attribute columns that label it (lot, operator, instrument). Attribute agreement takes category calls only.',
       outputs: 'Variance share per source with F tests, repeatability and reproducibility against tolerance, distinct categories, kappa with bootstrap intervals, miss and false-alarm rates.' },

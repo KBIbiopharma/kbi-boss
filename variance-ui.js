@@ -29,12 +29,17 @@
 
   // ---------- what each mode is for, and what it needs ----------
   const MODE_DESC = {
+    subgroup: 'Several measurements per batch or per time point, charted as the subgroup average with its spread. The spread chart is read first, because the limits on the averages are computed from it - and specification limits are never drawn here, because a subgroup mean is not a unit of product.',
     sites: 'Capability at each site, and whether the sites behave as one process at all. A single combined index is only reported when their centres and their spreads both survive a test; otherwise it is withheld, because one number over several different processes describes a mixture nobody runs.',
     components: 'Splits a total spread into between-group and within-group variation, says what share each owns, and names which groups genuinely differ rather than looking different by chance.',
     grr: 'Splits what you observe into repeatability, reproducibility and real part-to-part differences, and judges whether the measurement system is fit to make the decisions you make with it.',
     agree: 'For a judgement rather than a measurement: whether appraisers agree with themselves, with each other, and with the truth. Reports kappa beside the agreement percentage, because when the defect is rare an appraiser who passes everything scores high on the percentage and nothing on kappa.'
   };
   const SHAPES = {
+    subgroup: '<p class="hint">One row per measurement: which subgroup it belongs to, and the number. Two or more per subgroup, at least eight subgroups. Subgroup <em>within</em> a stream, not across them &mdash; a subgroup spanning two filling heads hides the difference between them inside the limits.</p>' +
+      '<div class="table-scroll"><table class="shape-table"><thead><tr><th>Batch</th><th>Fill_Weight</th></tr></thead><tbody>' +
+      '<tr><td>B-01</td><td>100.2</td></tr><tr><td>B-01</td><td>99.7</td></tr><tr><td>B-01</td><td>100.4</td></tr>' +
+      '<tr><td>B-02</td><td>99.9</td></tr><tr class="dim"><td colspan="2">&hellip; same number per subgroup where you can</td></tr></tbody></table></div>',
     sites: '<p class="hint">One row per result: which site it came from, and the number. At least five results per site, and the specification limits below &mdash; capability is a comparison against a limit, so without one there is nothing to be capable of.</p>' +
       '<div class="table-scroll"><table class="shape-table"><thead><tr><th>Site</th><th>Purity_Pct</th></tr></thead><tbody>' +
       '<tr><td>Site A</td><td>98.2</td></tr><tr><td>Site A</td><td>97.9</td></tr><tr><td>Site B</td><td>97.1</td></tr>' +
@@ -62,6 +67,7 @@
       '<p class="hint">Build the sample set close to half good and half defective, however unrepresentative that feels. A set matching real production &mdash; a few percent defective &mdash; cannot support a miss rate: there is almost nothing to miss, and the appraiser who passes every vial comes out looking excellent.</p>'
   };
   const EXAMPLES = {
+    subgroup: [['vc-ex1', 'Example: a stable filling line'], ['vc-ex2', 'Example: one subgroup blows out the spread'], ['vc-ex3', 'Example: two heads sampled into one subgroup']],
     sites: [['vc-ex1', 'Example: two sites, one process'], ['vc-ex2', 'Example: the sites are centred differently'], ['vc-ex3', 'Example: one site is far more variable']],
     components: [['vc-ex1', 'Example: one supplier lot is the problem'], ['vc-ex2', 'Example: the lots are fine, the assay is noisy'], ['vc-ex3', 'Example: analyst-to-analyst drift']],
     grr: [['vc-ex1', 'Example: a method fit for release'], ['vc-ex2', 'Example: one analyst out of step'], ['vc-ex3', 'Example: the instrument cannot resolve it']],
@@ -115,7 +121,7 @@
   function readRows() {
     if (!table) throw new Error('Load some measurements first.');
     const col = id => table.columns.indexOf($(id).value);
-    if (mode() === 'components' || mode() === 'sites') {
+    if (mode() === 'components' || mode() === 'sites' || mode() === 'subgroup') {
       const gi = col('vc-group'), vi = col('vc-value');
       if (gi < 0 || vi < 0) throw new Error('Pick a grouping column and a result column.');
       if (gi === vi) throw new Error('The grouping column and the result column must be different.');
@@ -548,9 +554,24 @@
   /* Built here rather than taken from a real study, so each one illustrates exactly one
      situation and the write-up can be checked against what was injected. */
   function example(kind) {
-    const seeds = { components: { vc1: 7, vc2: 19, vc3: 41 }, grr: { vc1: 3, vc2: 23, vc3: 57 }, agree: { vc1: 13, vc2: 31, vc3: 61 }, sites: { vc1: 3, vc2: 11, vc3: 29 } };
+    const seeds = { components: { vc1: 7, vc2: 19, vc3: 41 }, grr: { vc1: 3, vc2: 23, vc3: 57 }, agree: { vc1: 13, vc2: 31, vc3: 61 }, sites: { vc1: 3, vc2: 11, vc3: 29 }, subgroup: { vc1: 11, vc2: 17, vc3: 23 } };
     const r = E.rng(seeds[mode()]['vc' + kind]);
     const N = () => { const u = Math.max(1e-12, r()); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * r()); };
+    if (mode() === 'subgroup') {
+      /* A filling line sampled five per batch. The three examples are a stable line, one
+         batch whose spread blows out, and the subgrouping mistake: two heads running 6 apart
+         sampled into the same subgroup, which inflates the limits until nothing can signal. */
+      const rows = ['Batch,Fill_Weight'];
+      for (let g = 1; g <= 20; g++) {
+        for (let i = 0; i < 5; i++) {
+          let v2 = 100 + N() * 2;
+          if (kind === 2 && g === 10) v2 = 100 + N() * 14;
+          if (kind === 3) v2 = 100 + (i % 2 ? 6 : -6) + N() * 0.5;
+          rows.push('B-' + String(g).padStart(2, '0') + ',' + v2.toFixed(2));
+        }
+      }
+      return rows.join('\n');
+    }
     if (mode() === 'sites') {
       /* Three release datasets from two sites against a 96 to 100 specification. The three
          examples are the three answers the tool can give: one process, two centres, two
@@ -660,21 +681,59 @@
       '</div></details></div>';
   }
 
+  function renderSubgroup(r) {
+    const equal = r.sizes.every(n => n === r.sizes[0]);
+    const spreadName = r.kind === 'xbar-s' ? 'S' : 'R';
+    $('vc-out').innerHTML = '<div class="card"><h3>' + spreadName + ' chart \u2014 read this one first</h3><div id="vc-spread-chart"></div>' +
+      '<h3>X-bar chart \u2014 the subgroup averages</h3><div id="vc-mean-chart"></div>' +
+      '<p class="why">' + h(r.why) + '</p>' +
+      '<details class="howto" open><summary>How to read this, and what it means</summary><div class="howto-body">' +
+      '<p><b>The spread chart first, always.</b> The limits on the averages are computed from the within-subgroup spread. ' +
+      (r.spreadStable
+        ? 'It is in control here, so the X-bar limits rest on something stable and its signals can be read.'
+        : 'It is <b>not</b> in control here, so stop: the X-bar limits are built from a spread that is itself moving, and a signal or its absence on the averages means nothing until that is sorted out.') + '</p>' +
+      '<p><b>These limits are not specification limits.</b> A subgroup mean varies by sigma over root n, so at ' + r.sizes[0] + ' per subgroup these limits are about ' +
+      Math.sqrt(r.sizes[0]).toFixed(1) + ' times narrower than the process itself. A chart entirely in control can still be making product outside specification, and a chart breaching its limits can still be inside it. Capability is a separate question, asked of individual results.</p>' +
+      '<p><b>Was the subgrouping right?</b> ' + (r.ratio === null ? 'Not assessable here.' : r.subgroupingSuspect
+        ? 'Probably not. The means scatter only ' + r.ratio.toFixed(2) + ' times what the within-subgroup spread predicts, which is what happens when each subgroup already contains the thing it should be comparing across - two heads, two cavities, two lanes. The limits inflate and the chart stops being able to signal. Re-subgroup within a stream.'
+        : 'The means scatter ' + r.ratio.toFixed(2) + ' times what the within-subgroup spread predicts, consistent with subgroups capturing only common-cause variation.') + '</p>' +
+      '</div></details></div>';
+    const flagsFor = sig => r.labels.map((_, i) => (sig.some(s => s.i === i) ? ['outside the limits'] : []));
+    if (equal) {
+      CH.controlChart($('vc-spread-chart'), r.spreads, { ucl: r.limits[0].sUcl, cl: r.limits[0].centre, lcl: r.limits[0].sLcl,
+        flags: flagsFor(r.spreadSignals), yLabel: spreadName, xLabel: 'Subgroup', rowLabel: i => r.labels[i], height: 210 });
+      CH.controlChart($('vc-mean-chart'), r.means, { ucl: r.limits[0].xUcl, cl: r.grand, lcl: r.limits[0].xLcl,
+        flags: flagsFor(r.meanSignals), yLabel: 'Subgroup mean', xLabel: 'Subgroup', rowLabel: i => r.labels[i], height: 210 });
+    } else {
+      /* Unequal subgroups give every point its own limits, which a single pair of lines
+         cannot show. Standardising each point by its own limit is the standard answer: the
+         limits become a flat +/-3 and the shape of the chart is unchanged. */
+      const zs = r.means.map((m, i) => (m - r.grand) / ((r.limits[i].xUcl - r.grand) / 3));
+      const zr = r.spreads.map((v, i) => (v - r.limits[i].centre) / Math.max(1e-9, (r.limits[i].sUcl - r.limits[i].centre) / 3));
+      CH.controlChart($('vc-spread-chart'), zr, { ucl: 3, cl: 0, lcl: -3, flags: flagsFor(r.spreadSignals),
+        yLabel: 'Standardised ' + spreadName, xLabel: 'Subgroup', rowLabel: i => r.labels[i], height: 210 });
+      CH.controlChart($('vc-mean-chart'), zs, { ucl: 3, cl: 0, lcl: -3, flags: flagsFor(r.meanSignals),
+        yLabel: 'Standardised mean', xLabel: 'Subgroup', rowLabel: i => r.labels[i], height: 210 });
+      $('vc-out').insertAdjacentHTML('beforeend', '<p class="hint">Subgroup sizes differ, so every point has its own limits. Each is plotted standardised by its own, which turns the limits into a flat &plusmn;3 without changing the shape of the chart.</p>');
+    }
+  }
+
   // ---------- wiring ----------
   function showMode() {
     const m = mode();
     $('vc-mode-desc').textContent = MODE_DESC[m];
     $('vc-shape-body').innerHTML = SHAPES[m];
     $('vc-shape').querySelector('summary').textContent = 'What the data should look like';
-    $('vc-map-components').hidden = m !== 'components' && m !== 'sites';
+    $('vc-map-components').hidden = m !== 'components' && m !== 'sites' && m !== 'subgroup';
     $('vc-map-grr').hidden = m !== 'grr';
     $('vc-map-agree').hidden = m !== 'agree';
     $('vc-agree-note').hidden = m !== 'agree';
-    $('vc-spec').hidden = m !== 'grr' && m !== 'sites';
+    $('vc-spec').hidden = m !== 'grr' && m !== 'sites' && m !== 'subgroup';
     if ($('vc-margin-wrap')) $('vc-margin-wrap').hidden = m !== 'sites';
+
     $('vc-spec-note').hidden = m !== 'grr';
     $('vc-advanced').hidden = m !== 'components';
-    $('vc-run').textContent = m === 'components' ? 'Split the variation' : m === 'agree' ? 'Check the agreement' : m === 'sites' ? 'Compare the sites' : 'Check the measurement system';
+    $('vc-run').textContent = m === 'components' ? 'Split the variation' : m === 'agree' ? 'Check the agreement' : m === 'sites' ? 'Compare the sites' : m === 'subgroup' ? 'Chart it' : 'Check the measurement system';
     $('vc-examples').innerHTML = EXAMPLES[m].map(([id, label]) => '<button class="btn ghost small" id="' + id + '" type="button">' + h(label) + '</button>').join('') +
       '<button class="btn ghost small" id="vc-clear" type="button">Clear</button>';
     bindExamples();
@@ -712,6 +771,11 @@
         last = { kind: 'agree', r: res, rows: got.rows };
         renderAgree(res, got.rows);
         window.MLVarianceRun = summaryAgree(res);
+      } else if (mode() === 'subgroup') {
+        const spec = { lsl: $('vc-lsl').value === '' ? null : Number($('vc-lsl').value), usl: $('vc-usl').value === '' ? null : Number($('vc-usl').value) };
+        const res = window.MLSpc.subgroupChart(got.rows.map(r => ({ subgroup: r.group, value: r.value })), { spec });
+        last = { kind: 'subgroup', r: res, rows: got.rows };
+        renderSubgroup(res);
       } else if (mode() === 'sites') {
         const spec = { lsl: $('vc-lsl').value === '' ? null : Number($('vc-lsl').value), usl: $('vc-usl').value === '' ? null : Number($('vc-usl').value) };
         const margin = $('vc-margin') && $('vc-margin').value !== '' ? $('vc-margin').value : null;

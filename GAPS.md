@@ -20,9 +20,11 @@ validation project.
 
 ## What has been delivered since this evaluation was first written
 
-Four class A gaps are closed: the **rare-event chart**, **CUSUM and EWMA**, the **ICH Q2 calculations**, and **capability across sites**. Their rows below are marked
+Five class A gaps are closed: the **rare-event chart**, **CUSUM and EWMA**, the **ICH Q2 calculations**, **capability across sites**, and **subgroup charts**. Their rows below are marked
 delivered and their department bullets are gone. The build fails if any gap here claims a capability the
 code can be shown to have, so this section cannot silently go stale again.
+
+| **Subgroup charts** (X-bar with R or S) | A | GMP manufacturing | **Delivered.** On the variance bench. The spread chart is drawn first and the X-bar reading is gated on it, because the limits on the averages are computed from that spread. Specification limits are never drawn on the X-bar chart, with the reason given. And the subgrouping itself is checked: if the averages scatter far less than the within-subgroup spread predicts, each subgroup is carrying the variation it should be comparing across, and the chart is reported as unable to signal. |
 
 ## Priority, by how many departments it blocks
 
@@ -83,7 +85,6 @@ Well covered for measured data. The gaps are the two chart families it does not 
 
 - **[B]** No live connection to anything: no historian, no SCADA, no LIMS. Export a file and load it.
 - **[A]** No forecast of a trend forward. The tool detects that a level has moved and projects a stability trend to its specification, but it will not tell you where a monthly metric lands next quarter, and nothing here measures forecast accuracy.
-- **[A]** No subgroup charts. The individuals chart is the only variables chart here, so data collected in subgroups of three or five has to be charted as individuals or averaged first.
 - **[C]** Not a validated GxP system. Everything here is decision support with an audit trail attached.
 
 

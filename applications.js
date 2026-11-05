@@ -592,7 +592,6 @@
       gaps: [
         'No live connection to anything: no historian, no SCADA, no LIMS. Export a file and load it.',
         'No forecast of a trend forward. The tool detects that a level has moved and projects a stability trend to its specification, but it will not tell you where a monthly metric lands next quarter, and nothing here measures forecast accuracy.',
-        'No subgroup charts. The individuals chart is the only variables chart here, so data collected in subgroups of three or five has to be charted as individuals or averaged first.',
         'Not a validated GxP system. Everything here is decision support with an audit trail attached.'
       ]
     },

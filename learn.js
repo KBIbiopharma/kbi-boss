@@ -2491,6 +2491,56 @@
   });
 
   add({
+    id: 'subgroup-charts', group: 'Six Sigma and process control', title: 'Subgroup charts: read the spread chart first',
+    analogy: 'Weighing five apples together tells you about the bag. It tells you nothing about whether one apple is rotten, and the bag can look perfectly normal while the apples disagree wildly.',
+    intro: 'When you sample several units per batch, the average of each subgroup goes on one chart and the spread within it goes on another. The order matters: the limits on the averages are calculated from the within-subgroup spread, so if the spread chart is out of control the X-bar limits are built on a moving foundation and neither their signals nor their silence can be read.',
+    demo(el) {
+      const CASES = [['ok', 'A stable line'], ['blown', 'One batch blows out the spread'], ['heads', 'Two filling heads in one subgroup']];
+      el.innerHTML = '<div class="demo-controls">' + CASES.map((c, i) => btn(c[0], c[1], i ? 'ghost' : 'primary')).join('') + '</div>' +
+        '<div class="demo-grid"><div><h4>Spread within each subgroup (R)</h4><div data-role="r"></div></div>' +
+        '<div><h4>Subgroup averages (X-bar)</h4><div data-role="x"></div></div></div><p class="demo-read" data-role="read"></p>';
+      const show = which => {
+        el.querySelectorAll('.demo-controls .btn').forEach(b => { b.className = 'btn ' + (b.getAttribute('data-role') === which ? 'primary' : 'ghost'); });
+        const rand = E.rng(11), rows = [];
+        for (let g = 1; g <= 20; g++) for (let i = 0; i < 5; i++) {
+          let v = 100 + normal(rand) * 2;
+          if (which === 'blown' && g === 10) v = 100 + normal(rand) * 14;
+          if (which === 'heads') v = 100 + (i % 2 ? 6 : -6) + normal(rand) * 0.5;
+          rows.push({ subgroup: 'B' + g, value: v });
+        }
+        const r = S.subgroupChart(rows);
+        const panel = (role, vals, lo, cl, hi, sig, label) => {
+          const pad = (hi - lo) * 0.15 || 1;
+          const f = frame(300, 215, [-0.5, vals.length - 0.5], [Math.min(lo, ...vals) - pad, Math.max(hi, ...vals) + pad], { l: 44, b: 32, xLabel: 'Subgroup' });
+          q(el, role).innerHTML = svg(300, 215, label, f.axes +
+            '<path class="ref" d="' + pathOf([[-0.5, hi], [vals.length - 0.5, hi]], f) + '"/>' +
+            '<path class="ref" d="' + pathOf([[-0.5, lo], [vals.length - 0.5, lo]], f) + '"/>' +
+            '<path class="cl-line" d="' + pathOf([[-0.5, cl], [vals.length - 0.5, cl]], f) + '"/>' +
+            '<path class="line thin" d="' + pathOf(vals.map((v, i) => [i, v]), f) + '"/>' +
+            vals.map((v, i) => dot(f.sx(i), f.sy(v), sig.some(s => s.i === i) ? 'c2' : 'c1', 3.5)).join(''));
+        };
+        const L = r.limits[0];
+        panel('r', r.spreads, L.sLcl, L.centre, L.sUcl, r.spreadSignals, 'Range within each subgroup');
+        panel('x', r.means, L.xLcl, r.grand, L.xUcl, r.meanSignals, 'Subgroup averages');
+        q(el, 'read').innerHTML = which === 'ok'
+          ? 'The R chart is in control, so the X-bar limits rest on a stable spread and can be read. Within-subgroup sigma is <b>' + fmt(r.sigmaWithin) +
+            '</b>; the limits on the averages sit at three of those over &radic;5, which is <b>' + fmt(Math.sqrt(5)) + ' times narrower than the process itself</b>. That is why specification limits must never be drawn here.'
+          : which === 'blown'
+            ? 'Batch 10 breaks the R chart. <b>Stop there.</b> The X-bar limits were computed from the average within-subgroup spread, and that average has just been inflated by this one batch - so the limits on the right are too wide, and whether any average sits inside them tells you nothing. Find out what happened to batch 10 first.'
+            : 'Both charts look calm, and the process is anything but: two filling heads running 12 units apart are being sampled into every subgroup. That difference lands <i>inside</i> the subgroup, so it inflates the within-subgroup spread, which inflates the limits on the averages - and the chart goes blind. The giveaway is that the averages scatter only <b>' +
+              r.ratio.toFixed(2) + '</b> times as much as the spread predicts. Healthy subgrouping sits near 1. Subgroup within a head, not across them.';
+      };
+      CASES.forEach(c => { q(el, c[0]).onclick = () => show(c[0]); });
+      show('ok');
+    },
+    steps: ['Decide the subgroup so that only common-cause variation can happen inside it: one stream, one head, one short window.', 'Plot the within-subgroup spread (R for small subgroups, S for larger or unequal ones) and read that chart first.', 'Only once the spread is stable are the limits on the averages meaningful, because they are computed from it.', 'Never draw specification limits on the X-bar chart. Averages vary by sigma over root n, so the limits are narrower than the process; capability is a separate question asked of individual results.'],
+    when: 'Any time you measure several units per batch, per hour or per tray - fill weight, tablet hardness, vial headspace.',
+    watch: 'The quiet chart is the dangerous one. If the subgroups span a real source of variation, the limits inflate until nothing can signal, and the process can drift for months inside them. Compare how much the averages scatter against what the within-subgroup spread predicts: well under 1 means the subgrouping is hiding what you are looking for.',
+    where: 'The variance bench: pick the subgroup chart mode, give it a subgroup column and a result column. The spread chart is drawn first on purpose.',
+    quiz: { q: 'Your X-bar chart has sat inside its limits for six months and nobody has ever investigated a signal. The R chart is also calm. What is the first thing to check?', options: ['Nothing - this is a well-controlled process', 'Whether each subgroup spans several streams, which would inflate the limits until the chart cannot signal', 'Whether the limits need recalculating from more recent data'], answer: 1, why: 'A chart that never signals is either a genuinely excellent process or a chart that cannot see. Sampling across two heads, cavities or lanes puts their difference inside the subgroup, where it widens the limits instead of showing up as a signal. Compare the scatter of the averages against what the within-subgroup spread predicts: if it is well below 1, the chart has been blind the whole time.' }
+  });
+
+  add({
     id: 'across-sites', group: 'Six Sigma and process control', title: 'Capability across sites: when one number is worse than all of them',
     analogy: 'Two buses, each reliably five minutes early or five minutes late. Average them and the service looks perfectly on time, which is no help to anyone standing at the stop.',
     intro: 'A transfer ends with somebody asking for the capability of the product, singular. If the sites are genuinely the same process, one index is fair. If they sit at different centres, pooling them folds the gap between the sites into the spread, and the combined figure can come out worse than every site in it - a number that describes a process nobody runs.',

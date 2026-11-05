@@ -812,6 +812,123 @@
     };
   }
 
-  root.MLSpc = { normCdf, normInv, capability, crossSite, imr, countChart, rareEvents, cusum, ewma, shortSigma, boxCoxLambda, nonNormalTail, box, snRatio, taguchi, attribute };
+  /* ---------- Subgroup charts: X-bar with R or S ----------
+     The individuals chart is the only variables chart here, so anyone sampling three or five
+     per batch has been averaging first and throwing away the within-subgroup spread, which
+     is the thing that sets the limits.
+
+     Three ways these go wrong, and all three are handled rather than assumed away:
+
+     1. The spread chart comes first. X-bar limits are computed FROM the within-subgroup
+        spread, so if the R or S chart is out of control the X-bar limits are built on a
+        moving foundation and mean nothing. The verdict here is gated on that.
+     2. X-bar limits are not specification limits, and the two get compared constantly.
+        Subgroup means vary by sigma over root n, so the limits are narrower than the process
+        by that factor - at n = 5, less than half as wide. A process can sit comfortably
+        inside X-bar limits and still make product outside specification.
+     3. Subgrouping decides what the chart can see. If a subgroup spans a real source of
+        variation - cavities, lanes, two filling heads - that variation lands inside the
+        subgroup, inflates the limits, and the chart goes quiet whatever the process does.
+        That is detectable, and it is reported.
+
+     The S-chart constants are computed exactly from the gamma function. The R-chart ones
+     come from the published d2 and d3 table, which is why ranges are only offered up to
+     subgroups of ten; above that the tool uses S, whose constants need no table. */
+  const D2 = { 2: 1.128, 3: 1.693, 4: 2.059, 5: 2.326, 6: 2.534, 7: 2.704, 8: 2.847, 9: 2.970, 10: 3.078 };
+  const D3T = { 2: 0.853, 3: 0.888, 4: 0.880, 5: 0.864, 6: 0.848, 7: 0.833, 8: 0.820, 9: 0.808, 10: 0.797 };
+  const c4of = n => Math.sqrt(2 / (n - 1)) * Math.exp(E.lgamma(n / 2) - E.lgamma((n - 1) / 2));
+
+  function subgroupChart(rows, opt) {
+    opt = opt || {};
+    const clean = (rows || []).map(r => (r ? { subgroup: String(r.subgroup === undefined ? '' : r.subgroup).trim(), value: num(r.value) ? Number(r.value) : null } : null))
+      .filter(r => r && r.subgroup !== '' && r.value !== null);
+    if (!clean.length) throw new Error('No usable rows. Each row needs a subgroup label and a numeric result.');
+    const labels = [];
+    for (const r of clean) if (labels.indexOf(r.subgroup) < 0) labels.push(r.subgroup);
+    if (labels.length < 8) throw new Error('Only ' + labels.length + ' subgroups. Below about 8 the limits move more than the process does; collect more before charting.');
+    const groups = labels.map(L => clean.filter(r => r.subgroup === L).map(r => r.value));
+    const sizes = groups.map(g => g.length);
+    const nMin = Math.min(...sizes), nMax = Math.max(...sizes);
+    if (nMin < 2) throw new Error('Subgroup "' + labels[sizes.indexOf(nMin)] + '" has one result. A subgroup of one has no within-subgroup spread, which is what these limits are built from - use the individuals chart instead.');
+
+    /* R needs a table and only goes to ten; S is computed and has no such limit. Unequal
+       sizes also rule R out, because the range is not comparable across different n. */
+    const varying = nMin !== nMax;
+    const useS = opt.kind === 's' || varying || nMax > 10;
+    if (opt.kind === 'r' && (varying || nMax > 10)) {
+      throw new Error(varying
+        ? 'Subgroup sizes differ (' + nMin + ' to ' + nMax + '), so ranges are not comparable between them. The S chart handles unequal sizes and is used instead.'
+        : 'Subgroups of ' + nMax + ' are too large for a range chart to be efficient, and the published range constants stop at ten. Use the S chart.');
+    }
+
+    const means = groups.map(g => mean(g));
+    const sdOf = g => { const m = mean(g); return Math.sqrt(g.reduce((a, v) => a + (v - m) * (v - m), 0) / (g.length - 1)); };
+    const spreads = groups.map(g => (useS ? sdOf(g) : Math.max(...g) - Math.min(...g)));
+    const grand = clean.reduce((a, r) => a + r.value, 0) / clean.length;
+
+    /* Within-subgroup sigma. With equal sizes this is the plain average spread over its
+       constant; with unequal sizes the pooled form is used, which weights by how much each
+       subgroup actually knows. */
+    let sigmaWithin, spreadBar, limitsFor;
+    if (useS) {
+      if (varying) {
+        const num2 = groups.reduce((a, g, i) => a + (g.length - 1) * spreads[i] * spreads[i], 0);
+        const den = groups.reduce((a, g) => a + (g.length - 1), 0);
+        sigmaWithin = Math.sqrt(num2 / den);
+        spreadBar = sigmaWithin * c4of(Math.round(clean.length / labels.length));
+      } else {
+        spreadBar = mean(spreads);
+        sigmaWithin = spreadBar / c4of(nMax);
+      }
+      limitsFor = i => {
+        const n = sizes[i], c4 = c4of(n), root = Math.sqrt(Math.max(0, 1 - c4 * c4));
+        return { xUcl: grand + 3 * sigmaWithin / Math.sqrt(n), xLcl: grand - 3 * sigmaWithin / Math.sqrt(n),
+          sUcl: sigmaWithin * (c4 + 3 * root), sLcl: Math.max(0, sigmaWithin * (c4 - 3 * root)), centre: sigmaWithin * c4 };
+      };
+    } else {
+      spreadBar = mean(spreads);
+      const d2 = D2[nMax], d3 = D3T[nMax];
+      sigmaWithin = spreadBar / d2;
+      limitsFor = () => ({ xUcl: grand + 3 * sigmaWithin / Math.sqrt(nMax), xLcl: grand - 3 * sigmaWithin / Math.sqrt(nMax),
+        sUcl: spreadBar * (1 + 3 * d3 / d2), sLcl: Math.max(0, spreadBar * (1 - 3 * d3 / d2)), centre: spreadBar });
+    }
+
+    const lim = labels.map((_, i) => limitsFor(i));
+    const spreadSignals = [], meanSignals = [];
+    spreads.forEach((v, i) => { if (v > lim[i].sUcl || v < lim[i].sLcl) spreadSignals.push({ i, label: labels[i], value: v }); });
+    means.forEach((v, i) => { if (v > lim[i].xUcl || v < lim[i].xLcl) meanSignals.push({ i, label: labels[i], value: v }); });
+
+    /* Is the subgrouping rational? If a subgroup spans a real source of variation, the
+       within-subgroup spread swallows it, the X-bar limits widen, and the means huddle well
+       inside them. Comparing the observed scatter of the means against what the within-
+       subgroup spread predicts detects exactly that. Near 1 is healthy. */
+    const sdMeans = means.length > 1 ? Math.sqrt(means.reduce((a, v) => a + (v - mean(means)) * (v - mean(means)), 0) / (means.length - 1)) : 0;
+    const expected = sigmaWithin / Math.sqrt(clean.length / labels.length);
+    const ratio = expected > 0 ? sdMeans / expected : null;
+    const subgroupingSuspect = ratio !== null && ratio < 0.7;
+
+    const specGiven = opt.spec && (num(opt.spec.lsl) || num(opt.spec.usl));
+    return {
+      kind: useS ? 'xbar-s' : 'xbar-r', subgroups: labels.length, labels, sizes, n: clean.length,
+      means, spreads, grand, spreadBar, sigmaWithin, limits: lim,
+      meanSignals, spreadSignals,
+      spreadStable: spreadSignals.length === 0,
+      ratio, subgroupingSuspect,
+      why: labels.length + ' subgroups of ' + (varying ? nMin + ' to ' + nMax : nMax) + ', charted as X-bar and ' + (useS ? 'S' : 'R') + '. ' +
+        (spreadSignals.length
+          ? 'Read the ' + (useS ? 'S' : 'R') + ' chart first, and stop there: ' + spreadSignals.length + ' subgroup' + (spreadSignals.length === 1 ? ' has' : 's have') +
+            ' a spread outside its limits, and the X-bar limits are computed from that same spread. Until the within-subgroup variation is stable, the limits on the means are built on a moving foundation and the signals on them cannot be read.'
+          : 'The ' + (useS ? 'S' : 'R') + ' chart is in control, so the within-subgroup spread is a stable foundation and the X-bar limits mean what they say. ' +
+            (meanSignals.length ? meanSignals.length + ' subgroup mean' + (meanSignals.length === 1 ? '' : 's') + ' outside the limits.' : 'No subgroup mean is outside its limits.')) +
+        ' Within-subgroup sigma is ' + sigmaWithin.toPrecision(4) + ', so the limits on the means sit at three sigma over root ' +
+        (varying ? 'n' : nMax) + ' - narrower than the process itself by that factor.' +
+        (specGiven ? ' Specification limits were supplied and are deliberately NOT drawn on the X-bar chart: a subgroup mean is not a unit of product, and comparing the two is the commonest serious misreading of this chart. Judge capability on the individual results, not on the means.' : '') +
+        (subgroupingSuspect
+          ? ' The subgroup means scatter only ' + ratio.toFixed(2) + ' times as much as the within-subgroup spread predicts. That usually means each subgroup already contains a source of variation it should be comparing across - different cavities, lanes or heads sampled into one subgroup - which inflates the limits and leaves the chart unable to signal. Subgroup within a stream, not across them.'
+          : ratio === null ? '' : ' The means scatter ' + ratio.toFixed(2) + ' times what the within-subgroup spread predicts, which is consistent with subgroups that capture only common-cause variation.')
+    };
+  }
+
+  root.MLSpc = { normCdf, normInv, capability, crossSite, subgroupChart, imr, countChart, rareEvents, cusum, ewma, shortSigma, boxCoxLambda, nonNormalTail, box, snRatio, taguchi, attribute };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.MLSpc;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

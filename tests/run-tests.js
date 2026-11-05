@@ -5890,3 +5890,60 @@ test('site comparison can demonstrate equivalence, not just fail to find a diffe
 
   assert.throws(() => SPC.crossSite(mk('A', 98, 0.5, 30).concat(mk('B', 98, 0.5, 30)), spec, { margin: -1 }), /greater than zero/);
 });
+
+/* Subgroup charts. The individuals chart was the only variables chart here, so anyone
+   sampling three or five per batch had to average first - which throws away the within-
+   subgroup spread, the very thing that sets the limits. Three ways these charts are misread,
+   and the tests are mostly about those. */
+test('subgroup charts read the spread chart first and refuse to be compared with specifications', () => {
+  const rand = E.rng(11);
+  const nz = () => { const u = Math.max(1e-12, rand()), v = rand(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+  const mk = (k, n, fn) => { const rows = []; for (let g = 0; g < k; g++) for (let i = 0; i < n; i++) rows.push({ subgroup: 'G' + (g + 1), value: fn(g, i) }); return rows; };
+
+  /* The constants. S-chart ones are computed from the gamma function, so they are checked
+     against published values rather than trusted. */
+  const c4 = n => Math.sqrt(2 / (n - 1)) * Math.exp(E.lgamma(n / 2) - E.lgamma((n - 1) / 2));
+  for (const [n, pub] of [[2, 0.7979], [5, 0.9400], [10, 0.9727], [25, 0.9896]]) {
+    assert.ok(Math.abs(c4(n) - pub) < 0.0002, 'c4(' + n + ') should be ' + pub + ', got ' + c4(n).toFixed(4));
+  }
+
+  // A healthy chart recovers the within-subgroup sigma it was built from.
+  const ok = SPC.subgroupChart(mk(20, 5, () => 100 + nz() * 2));
+  assert.strictEqual(ok.kind, 'xbar-r');
+  assert.ok(Math.abs(ok.sigmaWithin - 2) < 0.25, 'within-subgroup sigma should recover 2, got ' + ok.sigmaWithin.toFixed(3));
+  assert.strictEqual(ok.spreadStable, true);
+  assert.ok(ok.ratio > 0.7 && !ok.subgroupingSuspect, 'healthy subgrouping should not be flagged, ratio ' + ok.ratio.toFixed(2));
+
+  /* Irrational subgrouping: two streams sampled into every subgroup. The variation that
+     should be compared across subgroups is sitting inside them, so the limits inflate and
+     the chart goes blind. The means huddle far inside, and that is detectable. */
+  const bad = SPC.subgroupChart(mk(20, 5, (g, i) => 100 + (i % 2 ? 6 : -6) + nz() * 0.5));
+  assert.ok(bad.subgroupingSuspect, 'two streams in one subgroup must be flagged, ratio ' + bad.ratio.toFixed(2));
+  assert.ok(bad.ratio < 0.4, 'and the means should huddle, got ' + bad.ratio.toFixed(2));
+  assert.ok(/inflates the limits and leaves the chart unable to signal/.test(bad.why));
+  assert.strictEqual(bad.meanSignals.length, 0, 'the point is that an inflated chart cannot signal');
+
+  /* An unstable spread makes the X-bar limits meaningless, because they are computed from
+     it. The result must say to stop at the spread chart rather than reading the means. */
+  const unstable = SPC.subgroupChart(mk(20, 5, (g) => 100 + nz() * (g === 9 ? 14 : 2)));
+  assert.ok(unstable.spreadSignals.length > 0, 'a blown-out subgroup must show on the spread chart');
+  assert.strictEqual(unstable.spreadStable, false);
+  assert.ok(/built on a moving foundation/.test(unstable.why), 'and the X-bar reading must be gated on it');
+
+  // Specification limits are never drawn on an X-bar chart, and the reason is stated.
+  const withSpec = SPC.subgroupChart(mk(20, 5, () => 100 + nz() * 2), { spec: { lsl: 90, usl: 110 } });
+  assert.ok(/deliberately NOT drawn/.test(withSpec.why), 'spec limits on an X-bar chart is the commonest serious misreading');
+  assert.ok(/a subgroup mean is not a unit of product/.test(withSpec.why));
+
+  // Unequal sizes and large subgroups both route to S, whose constants need no table.
+  const uneven = [];
+  for (let g = 0; g < 12; g++) for (let i = 0; i < (g % 3 === 0 ? 4 : 6); i++) uneven.push({ subgroup: 'G' + g, value: 100 + nz() * 2 });
+  assert.strictEqual(SPC.subgroupChart(uneven).kind, 'xbar-s');
+  assert.strictEqual(SPC.subgroupChart(mk(20, 12, () => 100 + nz() * 2)).kind, 'xbar-s');
+  assert.throws(() => SPC.subgroupChart(mk(20, 12, () => 100 + nz() * 2), { kind: 'r' }), /constants stop at ten|too large for a range chart/);
+  assert.throws(() => SPC.subgroupChart(uneven, { kind: 'r' }), /not comparable/);
+
+  // Refusals.
+  assert.throws(() => SPC.subgroupChart(mk(20, 1, () => 100)), /subgroup of one has no within-subgroup spread/);
+  assert.throws(() => SPC.subgroupChart(mk(4, 5, () => 100 + nz())), /Only 4 subgroups/);
+});
