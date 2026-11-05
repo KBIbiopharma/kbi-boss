@@ -4814,12 +4814,13 @@ test('the gap evaluation quotes the tool rather than describing it, and covers e
     assert.ok(doc.indexOf(c) >= 0, 'class "' + c + '" is used but not defined');
   }
 
-  /* The rare-event chart is the headline recommendation, and the claim behind it is that
-     four departments name it. If a fifth starts naming it, or one stops, the count in the
-     priority table is wrong and this catches it. */
+  /* The rare-event chart was the headline recommendation and is now built, so no department
+     may still be told it is missing, and the table has to say it was delivered. */
   const rare = apps.FUNCTIONS.filter(([k]) => apps.PLAYBOOKS[k].gaps.some(g => /rare-event chart/.test(g)));
-  assert.strictEqual(rare.length, 4, 'the evaluation says four departments name the rare-event chart, found ' + rare.length);
-  assert.ok(/Build this first/.test(doc), 'and it must still be the headline recommendation');
+  assert.strictEqual(rare.length, 0, 'the rare-event chart is built, but ' + rare.length + ' department(s) still name it as a gap');
+  assert.ok(/\*\*Delivered\.\*\*/.test(doc), 'the priority table must record what has been delivered');
+  assert.ok(/What has been delivered since this evaluation was first written/.test(doc),
+    'a handover document has to say which of its own recommendations are already done');
 
   /* The PICTS answer is a recommendation against integrating, and the reason is the privacy
      guarantee. If that guarantee ever stops being true the recommendation has to be revisited,
@@ -5526,4 +5527,65 @@ test('a reader can move through the course one lesson at a time', () => {
   const css = fs.readFileSync(path.join(ROOT, 'style.css'), 'utf8');
   assert.ok(/\.lesson-bar \.bar-on/.test(css), 'the progress bar needs a fill colour from the stylesheet');
   assert.ok(!/style="/.test(src), 'no inline styles anywhere in the lessons');
+});
+
+/* The gap evaluation goes to another team as a list of work to fund. Its previous guard
+   checked that the document and the product agreed with each other - which they did, while
+   both were wrong: five bullets across four departments still said the rare-event chart and
+   CUSUM/EWMA were missing, months after they shipped, and the top row of the priority table
+   said "build this first" about a chart that was already in the zip.
+
+   Agreement is not truth. This ties each claim to the code instead: if the function that
+   would close a gap can be shown to exist, no department may still be told the gap is open.
+   Build one of the four remaining class A items and this test fails until its claim is
+   removed - which is the only way a document like this stays honest without anyone
+   remembering to check. */
+test('no gap claims a capability the code already has', () => {
+  const apps = require(path.join(ROOT, 'applications.js'));
+  const doc = fs.readFileSync(path.join(ROOT, 'GAPS.md'), 'utf8');
+  const UNC = require(path.join(ROOT, 'uncertainty.js'));
+  const has = v => typeof v === 'function';
+
+  /* Each entry pairs the way a gap claims absence with the thing that would close it. The
+     patterns match the absence phrasing specifically, so a gap that mentions a capability
+     while describing its limits - "no attribute agreement for more than eight calls" - is
+     not caught by it. */
+  const CLOSERS = [
+    { what: 'the rare-event chart', claim: /\bno (?:\w+ )*rare-event chart/i, built: () => has(SPC.rareEvents) },
+    { what: 'CUSUM and EWMA', claim: /\bno CUSUM or EWMA\b/i, built: () => has(SPC.cusum) && has(SPC.ewma) },
+    { what: 'count charts', claim: /\bno (?:\w+ )*count charts?\b/i, built: () => has(SPC.countChart) },
+    { what: 'a Box-Cox path for skewed data', claim: /\bno Box-Cox\b/i, built: () => has(SPC.boxCoxLambda) },
+    { what: 'conformal prediction intervals', claim: /\bno (?:\w+ )*conformal\b/i, built: () => has(UNC.conformalQuantile) },
+    // The four class A items still open. Each becomes self-policing the day it is built.
+    { what: 'reliability distributions', claim: /\bno reliability distributions|\bno Weibull fitting/i, built: () => has(SPC.weibull) || has(SPC.hazard) },
+    { what: 'capability across sites in one step', claim: /\bno process capability modelling across sites/i, built: () => has(SPC.crossSite) || has(SPC.acrossSites) },
+    { what: 'a size distribution across the bins', claim: /\bno size distribution fitted across the bins/i, built: () => has(SPC.sizeDistribution) || has(SPC.binnedSize) },
+    { what: 'the named ICH Q2 calculations', claim: /LOD and LOQ are not implemented|\bno ICH Q2 validation package/i, built: () => has(TOL.linearity) || has(TOL.lod) || has(TOL.loq) },
+    { what: 'forecasting a trajectory forward', claim: /does not fit kinetics or forecast a trajectory forward/i, built: () => fs.existsSync(path.join(ROOT, 'forecast.js')) }
+  ];
+
+  for (const c of CLOSERS) {
+    const claimed = [];
+    for (const [key, label] of apps.FUNCTIONS) {
+      for (const gap of apps.PLAYBOOKS[key].gaps) if (c.claim.test(gap)) claimed.push(label);
+    }
+    if (c.built()) {
+      assert.deepStrictEqual(claimed, [],
+        c.what + ' is built, but it is still listed as missing for: ' + claimed.join(', ') +
+        '. Remove the gap from applications.js and from GAPS.md, and mark the priority row delivered.');
+      // And the document must not be recommending it either.
+      assert.ok(!new RegExp('Build this first[\\s\\S]{0,200}' + c.what.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i').test(doc),
+        c.what + ' is built but still carries a build-this-first recommendation');
+    }
+  }
+
+  /* And the counts the document quotes about itself have to be right, since a reader uses
+     them to size the work. */
+  const total = apps.FUNCTIONS.reduce((n, [k]) => n + apps.PLAYBOOKS[k].gaps.length, 0);
+  const bullets = (doc.match(/^- \*\*\[[^\]]+\]\*\* /gm) || []).length;
+  assert.strictEqual(bullets, total, 'the document lists ' + bullets + ' gaps; the product has ' + total);
+  // Every department still has something to say, or the panel renders an empty promise.
+  for (const [key, label] of apps.FUNCTIONS) {
+    assert.ok(apps.PLAYBOOKS[key].gaps.length > 0, label + ' has no gaps left, which is never true and reads as a bug');
+  }
 });

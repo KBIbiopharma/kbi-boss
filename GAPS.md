@@ -18,14 +18,21 @@ A class B gap is not a backlog item. Closing one means giving up the privacy gua
 offline guarantee, or both, and the guarantee is most of why the tool is usable without a
 validation project.
 
+## What has been delivered since this evaluation was first written
+
+Two class A gaps are closed: the **rare-event chart** and **CUSUM and EWMA**. Their rows below are marked
+delivered and their department bullets are gone. The build fails if any gap here claims a capability the
+code can be shown to have, so this section cannot silently go stale again.
+
 ## Priority, by how many departments it blocks
 
 | Gap | Class | Departments affected | Assessment |
 |---|---|---|---|
-| **Rare-event chart** (units or days between events) | A | GMP manufacturing, particle characterization, microbiology, facilities | **Build this first.** Four departments name it. At a finding rate in the tenths of a percent, every chart the tool currently has is mostly noise, so those four groups have no usable chart for their most common question. Scope is comparable to the count charts already built: one function, a measured false-alarm rate, a measured detection rate, and the trade stated. |
+| **Rare-event chart** (units or days between events) | A | GMP manufacturing, particle characterization, microbiology, facilities | **Delivered.** Gaps between events, on probability limits rather than three sigma, with the three-sigma limits drawn beside them so the difference is visible, and the run rule taken from a baseline median rather than from all the data. All four departments' bullets have been removed. |
 | **Image and spectrum reading** | B | Cell line, downstream, AFS, QC, particle characterization, microbiology | Six departments, and not buildable here. See the PICTS note below: the right move is to consume a classifier's output, not to become one. |
 | **Live connections** (historian, BMS, SCADA, LIMS) | B | GMP manufacturing, facilities, QC, MSAT | Export-and-load is the deliberate design. A live connection means a server, credentials and a validation burden. |
-| **CUSUM and EWMA** | A | GMP manufacturing, and useful to facilities and microbiology | Detects a small sustained shift faster than the Nelson rules. Well-defined, bounded, and the existing chart machinery takes it. |
+| **CUSUM and EWMA** | A | GMP manufacturing, and useful to facilities and microbiology | **Delivered.** Both run beside the individuals chart at a matched false-alarm rate, with the baseline stated and the start of the drift estimated. At a one-sigma shift these signal after about 10 points against 45 for a three-sigma chart. |
+| **Time-series forecasting and backtesting** | A | Upstream process development, GMP manufacturing | The tool projects a trend to a specification (ICH Q1E) and detects that a level has moved (CUSUM, EWMA), but it cannot forecast a trajectory forward and nothing measures forecast accuracy. The bounded build is a rolling-origin backtest with a seasonal-naive baseline, exponential smoothing with a damped trend, and conformal forecast intervals. Build the backtest first: it is what lets any method, including a bought-in model, be held to a measured number on this site's own data rather than a vendor's. |
 | **ICH Q2 calculations** (linearity, LOD, LOQ, robustness) | A | AFS, QC | Two departments ask for the same named set. Mechanical to implement and easy to validate against published examples. |
 | **Reliability distributions** (Weibull, hazard, survival) | A | Facilities | MTBF work is currently limited to trends and comparisons. Self-contained. |
 | **Size distribution across bins** | A | Particle characterization | Counts per bin are handled as counts, with nothing modelled over the bin structure. |
@@ -53,20 +60,18 @@ Each list is the tool's own words, as rendered in the panel.
 
 ### Particle characterization core (PCC)
 
-Best served of the eleven after the last three builds: attribute agreement for the type call, Gage R&R for the counter, count charts with the clustering measured, capability on a transformed scale, and distribution-free alert levels. The rare-event chart is the one real hole. Image reading is class B and is answered by the PICTS note below.
+Best served of the eleven. Attribute agreement for the type call, Gage R&R for the counter, count charts with the clustering measured, capability on a transformed scale, distribution-free alert levels, and now the rare-event chart for a finding rate in the tenths of a percent. What is left is class B: image reading, answered by the PICTS note below, and a size distribution fitted across the bins.
 
 - **[B]** No image or spectrum reading, which for this group is the biggest limitation: FTIR, Raman, SEM-EDX and flow imaging outputs have to arrive as labels and numbers in columns, because the page reads tables and nothing else.
 - **[B]** No automated particle type classification. The type call stays a human judgement; what the tool does is measure how consistent and how correct that judgement is.
-- **[A]** No rare-event chart, which is what a finding rate in the tenths of a percent actually needs.
 - **[C]** No USP two-tier decision logic: it will not tell you which tier a result falls in, whether it is an excursion, or whether it is reportable.
 - **[A]** No size distribution fitted across the bins - counts per bin are handled as counts, with nothing modelled over the bin structure itself.
 
 
 ### Microbiology & environmental monitoring
 
-The same shape as particle characterization and the same first gap. Counted, rare, judged by eye: the tool now covers the first and third, and the rare-event chart is the second.
+The same shape as particle characterization. Counted, rare, judged by eye: the tool now covers all three, the rare-event chart included. What is left for this group is identification and compendial decision logic, and neither is a statistics problem.
 
-- **[A]** No rare-event chart, which is the right tool for contamination rates in the tenths of a percent and the single biggest gap for this group.
 - **[B]** No identification or genotyping: an isolate identity has to arrive as a label in a column.
 - **[C]** No compendial decision logic. It will not tell you whether a result is an excursion, an action-level breach or reportable.
 - **[B]** No image reading, so colony counts must be entered as numbers rather than read from a plate photograph.
@@ -77,8 +82,8 @@ The same shape as particle characterization and the same first gap. Counted, rar
 Well covered for measured data. The gaps are the two chart families it does not have, and both are class A.
 
 - **[B]** No live connection to anything: no historian, no SCADA, no LIMS. Export a file and load it.
-- **[A]** No rare-event chart yet, which is the right tool for a reject rate in the tenths of a percent.
-- **[A]** No CUSUM or EWMA, which beat Nelson rules for detecting a small sustained shift quickly.
+- **[A]** No forecast of a trend forward. The tool detects that a level has moved and projects a stability trend to its specification, but it will not tell you where a monthly metric lands next quarter, and nothing here measures forecast accuracy.
+- **[A]** No subgroup charts. The individuals chart is the only variables chart here, so data collected in subgroups of three or five has to be charted as individuals or averaged first.
 - **[C]** Not a validated GxP system. Everything here is decision support with an audit trail attached.
 
 
@@ -88,7 +93,6 @@ Drift detection and multivariate monitoring are strong. Reliability work is the 
 
 - **[B]** No connection to a historian, BMS or SCADA. Export a file and load it; nothing here reads a live tag.
 - **[A]** No reliability distributions: no Weibull fitting, no hazard rate, no survival model, so MTBF work is limited to trends and comparisons.
-- **[A]** No rare-event chart, which is what a failure count at a low rate actually needs.
 - **[C]** No qualification or commissioning logic: it will not tell you whether a system is in a qualified state.
 
 

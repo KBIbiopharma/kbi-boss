@@ -592,8 +592,8 @@
       ],
       gaps: [
         'No live connection to anything: no historian, no SCADA, no LIMS. Export a file and load it.',
-        'No rare-event chart yet, which is the right tool for a reject rate in the tenths of a percent.',
-        'No CUSUM or EWMA, which beat Nelson rules for detecting a small sustained shift quickly.',
+        'No forecast of a trend forward. The tool detects that a level has moved and projects a stability trend to its specification, but it will not tell you where a monthly metric lands next quarter, and nothing here measures forecast accuracy.',
+        'No subgroup charts. The individuals chart is the only variables chart here, so data collected in subgroups of three or five has to be charted as individuals or averaged first.',
         'Not a validated GxP system. Everything here is decision support with an audit trail attached.'
       ]
     },
@@ -658,7 +658,6 @@
       gaps: [
         'No image or spectrum reading, which for this group is the biggest limitation: FTIR, Raman, SEM-EDX and flow imaging outputs have to arrive as labels and numbers in columns, because the page reads tables and nothing else.',
         'No automated particle type classification. The type call stays a human judgement; what the tool does is measure how consistent and how correct that judgement is.',
-        'No rare-event chart, which is what a finding rate in the tenths of a percent actually needs.',
         'No USP two-tier decision logic: it will not tell you which tier a result falls in, whether it is an excursion, or whether it is reportable.',
         'No size distribution fitted across the bins - counts per bin are handled as counts, with nothing modelled over the bin structure itself.'
       ]
@@ -685,7 +684,6 @@
           limit: 'Recovery and detection limits are method validation questions this does not answer; it compares results you already have.' }
       ],
       gaps: [
-        'No rare-event chart, which is the right tool for contamination rates in the tenths of a percent and the single biggest gap for this group.',
         'No identification or genotyping: an isolate identity has to arrive as a label in a column.',
         'No compendial decision logic. It will not tell you whether a result is an excursion, an action-level breach or reportable.',
         'No image reading, so colony counts must be entered as numbers rather than read from a plate photograph.'
@@ -715,7 +713,6 @@
       gaps: [
         'No connection to a historian, BMS or SCADA. Export a file and load it; nothing here reads a live tag.',
         'No reliability distributions: no Weibull fitting, no hazard rate, no survival model, so MTBF work is limited to trends and comparisons.',
-        'No rare-event chart, which is what a failure count at a low rate actually needs.',
         'No qualification or commissioning logic: it will not tell you whether a system is in a qualified state.'
       ]
     },
