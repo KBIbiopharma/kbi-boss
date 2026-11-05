@@ -1148,7 +1148,9 @@ test('every tool has an applications write-up, and none of it overclaims', () =>
   // Only the tool selector's own options, not every <option> on the page.
   const selector = (html.match(/<select id="tool">([\s\S]*?)<\/select>/) || [])[1] || '';
   assert.ok(selector, 'the tool selector should be findable');
-  const tools = [...selector.matchAll(/<option value="([a-z]+)"/g)].map(m => m[1]).filter(t => t !== 'privacy');
+  /* Options carrying data-opens are second doors onto another bench, not benches, so they
+     have no write-up of their own - the bench they open supplies it. */
+  const tools = [...selector.matchAll(/<option value="([a-z]+)"(?![^>]*data-opens)/g)].map(m => m[1]).filter(t => t !== 'privacy');
   assert.ok(tools.length >= 4, tools.join(','));
   for (const t of tools) {
     assert.ok(apps[t], 'no applications entry for ' + t);
@@ -2872,8 +2874,18 @@ test('every department job routes to a tool and a dataset that exist', () => {
   const sel = html.slice(html.indexOf('<select id="tool">'), html.indexOf('</select>', html.indexOf('<select id="tool">')));
   const tools = Array.from(sel.matchAll(/<option value="([a-z]+)"/g)).map(m => m[1]);
   assert.ok(tools.length >= 8, 'the tool selector should have been found: ' + tools.join(','));
-  // And the panels those ids need, since showTool unhides #tab-<id>.
-  for (const t of tools) assert.ok(html.indexOf('id="tab-' + t + '"') >= 0, 'no panel for tool ' + t);
+  /* An option is either a bench with a panel of its own, or a second door onto one, which it
+     declares with data-opens. The Six Sigma entry is the second kind: it opens the machine
+     learning panel with the mode already set, because Six Sigma mode is the same run with
+     more output rather than a separate pipeline. A door that opens nothing is the bug this
+     guards against, so the target has to be a real panel. */
+  const opens = {};
+  for (const m of sel.matchAll(/<option value="([a-z]+)"[^>]*\sdata-opens="([a-z]+)"/g)) opens[m[1]] = m[2];
+  for (const t of tools) {
+    const panel = opens[t] || t;
+    assert.ok(html.indexOf('id="tab-' + panel + '"') >= 0,
+      opens[t] ? 'the "' + t + '" option opens panel tab-' + panel + ', which does not exist' : 'no panel for tool ' + t);
+  }
 
   const samples = require(path.join(ROOT, 'samples.js')).map(s => s.id);
   assert.ok(samples.length >= 5);
@@ -3449,8 +3461,11 @@ test('the tool page carries the tool and nothing else', () => {
   const sel = html.slice(html.indexOf('<select id="tool">'), html.indexOf('</select>', html.indexOf('<select id="tool">')));
   const toolIds = Array.from(sel.matchAll(/<option value="([a-z]+)"/g)).map(m => m[1]);
   assert.ok(toolIds.length >= 8);
+  const opensTo = {};
+  for (const m of sel.matchAll(/<option value="([a-z]+)"[^>]*\sdata-opens="([a-z]+)"/g)) opensTo[m[1]] = m[2];
   for (const t of toolIds) {
-    assert.ok(tools.indexOf('id="tab-' + t + '"') >= 0, 'tool panel tab-' + t + ' must be on the tool page');
+    const panel = opensTo[t] || t;
+    assert.ok(tools.indexOf('id="tab-' + panel + '"') >= 0, 'tool panel tab-' + panel + ' must be on the tool page');
   }
   // Nothing may be left outside both pages, or it renders on neither.
   const main = html.slice(html.indexOf('<main id="main">'), html.indexOf('</main>'));
@@ -5181,7 +5196,10 @@ test('the tools summary covers every bench, names the input type, and cannot dri
   const picker = html.slice(html.indexOf('<select id="tool">'), html.indexOf('</select>', html.indexOf('<select id="tool">')));
   const options = (picker.match(/value="([a-z]+)"/g) || []).map(s => s.replace(/value="|"/g, ''));
   assert.ok(options.length >= 8, 'tool selector not found or too short: ' + options.join(','));
-  const analytic = options.filter(o => o !== 'privacy');
+  /* A second door onto a bench, declared with data-opens, is not a bench and gets no row of
+     its own in the summary table - the bench it opens already has one. */
+  const doors = [...picker.matchAll(/<option value="([a-z]+)"[^>]*\sdata-opens="/g)].map(m => m[1]);
+  const analytic = options.filter(o => o !== 'privacy' && !doors.includes(o));
 
   // Every analysis bench gets exactly one row, and no row invents a bench.
   assert.deepStrictEqual(M.TOOLS.map(t => t.tool).slice().sort(), analytic.slice().sort(),
@@ -5881,6 +5899,32 @@ test('requiring every attribute to pass needs no correction, and the power cost 
     'an attribute with no margin must be reported as untested rather than given an invented one');
   assert.ok(/will not invent one/.test(noMargin.attributes.find(a => a.name === 'A3').error));
   assert.strictEqual(noMargin.anyUntested, true, 'and the overall result must say some attributes were left out');
+});
+
+/* The agent catches a failed computation and records WHY on the report - driftError,
+   countsError, rareError. For a long time the page read none of them: the card simply did not
+   appear, so somebody who expected a CUSUM chart saw no chart and no reason. That is the worst
+   of the three possible outcomes, and it is the project's own rule broken, because a blank
+   reads as a clean result. Any new `somethingError` the agent can set has to be surfaced too,
+   so this checks the whole class rather than the three that exist today. */
+test('every failure the agent records is shown to the reader, not silently dropped', () => {
+  const agent = fs.readFileSync(path.join(ROOT, 'agent.js'), 'utf8');
+  const app = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
+  const recorded = [...agent.matchAll(/\b(?:out|rep|report)\.([a-zA-Z]+Error)\s*=/g)].map(m => m[1]);
+  const unique = [...new Set(recorded)];
+  assert.ok(unique.length >= 3, 'the error fields could not be read out of agent.js; found ' + unique.join(', '));
+  /* Two legitimate routes to the reader: the page reads the field and renders a notice, or
+     the agent turns it into an insight, which the page renders generically. Either counts;
+     neither is the same as recording it and stopping. The insight route is checked on the
+     agent's own source, after the point where the field is set, so a field that is only ever
+     assigned does not pass by having its name appear in that assignment. */
+  const insightUse = agent.slice(agent.indexOf('function insights('));
+  const unread = unique.filter(k => !new RegExp("'" + k + "'|\\." + k + "\\b").test(app) && !new RegExp("\\brep\\." + k + "\\b").test(insightUse));
+  assert.deepStrictEqual(unread, [],
+    'the agent records these reasons for a computation failing and nothing ever shows them, so the card or the band just disappears: ' + unread.join(', '));
+  // And the message has to carry the reason, not merely note that something went wrong.
+  assert.ok(/a missing card looks like a clean result|reads as a pass|said here rather than left out/i.test(app),
+    'the page must say why it is showing the refusal at all, since that is the rule being followed');
 });
 
 test('the README figures for the academy match the academy', () => {

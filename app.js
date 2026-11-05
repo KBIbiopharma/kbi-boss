@@ -573,6 +573,21 @@
         });
       }
     }
+    /* Something that could not be computed is said, not left out. Each of these three has a
+       catch in the agent that records why it failed, and for a long time nothing here read
+       any of them: the card simply did not appear, so somebody who expected a CUSUM chart saw
+       no chart and no reason, which is the worst of the three possible outcomes. The rule this
+       tool runs on is that a blank reads as a pass, so a refusal has to be visible. */
+    const notes = [
+      ['driftError', 'The CUSUM and EWMA charts', 'They are the pair for a small sustained shift, so this is worth fixing rather than ignoring - usually it means the results are too few or too alike for a within-subgroup sigma.'],
+      ['countsError', 'The count chart', 'The target looked like counted data - whole numbers, never negative - so a count chart was attempted beside the measurement chart. The individuals chart above still stands.'],
+      ['rareError', 'The rare-event chart', 'Most rows recorded nothing, so the gaps between events would have carried more than the counts do.']
+    ].filter(([key]) => s[key]);
+    if (notes.length) {
+      append(blocks, card(notes.length === 1 ? notes[0][1] + ' could not be computed' : 'Some charts could not be computed',
+        'Said here rather than left out, because a missing card looks like a clean result.',
+        notes.map(([key, what, why]) => '<p class="hint flagged-note"><b>' + h(what) + ':</b> ' + h(s[key]) + ' ' + h(why) + '</p>').join('')));
+    }
     /* The drift charts, beside the I-MR one rather than instead of it. Both are drawn
        because they answer the same question differently and disagreeing is informative:
        CUSUM crossing while EWMA has not is a slow bias, the reverse is a recent step. */
@@ -1721,6 +1736,14 @@
     limits: 'Work out which specification limits your data can actually defend, and how many results a study needs before it is worth running.',
     plasmid: 'Pick the vector for an incoming programme: historical runs, the parts you can order and the protein\u2019s attributes in, a balanced run sheet with predicted titer out.',
     sequence: 'A genetic algorithm searching several competing objectives at once, pointed here at codon optimization.',
+    /* A second door onto the ML bench rather than a bench of its own, because Six Sigma mode
+       is the same run with more output - it reads rep.importance and rep.doeDet, so splitting
+       it off would mean either fitting models nobody asked for or losing the guard that stops
+       a capability index being quoted from a designed experiment. What it fixes is the door:
+       somebody who wants a capability study should not have to find it behind a radio button
+       on a bench called machine learning. The option carries data-opens="analyze" and the
+       mode is flipped on arrival. */
+    sigma: 'Process capability against your specification, the individuals chart with CUSUM and EWMA beside it, count and rare-event charts where the data is counted, box plots by source and Taguchi robustness. The same run as the machine-learning bench, with the process-control output switched on.',
     privacy: 'How the tool keeps your data on your own device, and how to check that for yourself.'
   };
 
@@ -2166,14 +2189,30 @@
   }
 
   const TOOL_NAMES = Object.keys(TOOLS);
+  /* Which panel an option opens, read off the option itself rather than kept in a second list
+     here. An option with no data-opens is its own panel, which is every one but sigma. */
+  const opensOf = name => {
+    const o = $('tool') && $('tool').querySelector('option[value="' + name + '"]');
+    return (o && o.getAttribute('data-opens')) || name;
+  };
+  const PANELS = TOOL_NAMES.filter(n => opensOf(n) === n);
   function showTool(name, push) {
     if (!TOOL_NAMES.includes(name)) name = 'analyze';
+    const panel = opensOf(name);
     // Asking for a tool means wanting to see it, wherever the request came from.
     showPage('tools', false);
     if ($('tool').value !== name) $('tool').value = name;
     $('tool-desc').textContent = TOOLS[name];
-    renderApplications(name);
-    TOOL_NAMES.forEach(n => { $('tab-' + n).hidden = n !== name; });
+    renderApplications(panel);
+    PANELS.forEach(n => { $('tab-' + n).hidden = n !== panel; });
+    /* The two doors onto the ML bench set the mode they were opened for. Clicking through to
+       the plain bench after using the Six Sigma one should not leave the spec panel up, and
+       arriving at the Six Sigma one should not require finding the radio. */
+    if (panel === 'analyze') {
+      const want = name === 'sigma' ? 'sigma' : 'ml';
+      const radio = document.querySelector('input[name="mode"][value="' + want + '"]');
+      if (radio && !radio.checked) { radio.checked = true; radio.dispatchEvent(new Event('change', { bubbles: true })); }
+    }
     // A link can be shared or bookmarked straight to one tool.
     if (push && location.hash.slice(1) !== name) history.replaceState(null, '', '#' + name);
   }

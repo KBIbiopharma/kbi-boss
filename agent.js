@@ -794,6 +794,13 @@
         d.specs.map((sp, i) => sp.name + ' ≈ ' + fmt(b.ys[i])).join(', ') + '.' + (b.D === 0 ? ' No setting inside your data range meets every acceptable range at once: relax a range, lower an importance, or explore beyond the data with a DOE.' : ''));
     }
     spcInsights(rep, add);
+    /* Interval calibration failing is the quietest of the failures this tool can have and the
+       one that misleads most: every prediction then comes back as a bare number, and a bare
+       number reads as an exact one. The reason is recorded a few hundred lines up and was
+       never shown to anybody, so it is said here - in the findings, where somebody reading the
+       predictions will see it. */
+    if (rep.intervalError) add('warn', 'Prediction intervals could not be calibrated: ' + rep.intervalError +
+      ' So every predicted figure below is a point estimate with no band around it, and a point estimate with no band reads as more certain than it is. The usual cause is too few rows to hold any back for calibration. Treat the predictions as directional until there are more.');
     const n = rep.nUsed || prof.nRows;
     if (n < 30) add('warn', 'Only ' + n + ' rows. Treat results as directional; small samples can mislead. A planned experiment gets more from few runs than historical data does.');
     else if (features.length && n < 10 * features.length) add('warn', n + ' rows for ' + features.length + ' inputs. Rule of thumb is 10+ rows per input; more data would firm up the results.');
