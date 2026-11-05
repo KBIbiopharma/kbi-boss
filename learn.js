@@ -2491,6 +2491,55 @@
   });
 
   add({
+    id: 'across-sites', group: 'Six Sigma and process control', title: 'Capability across sites: when one number is worse than all of them',
+    analogy: 'Two buses, each reliably five minutes early or five minutes late. Average them and the service looks perfectly on time, which is no help to anyone standing at the stop.',
+    intro: 'A transfer ends with somebody asking for the capability of the product, singular. If the sites are genuinely the same process, one index is fair. If they sit at different centres, pooling them folds the gap between the sites into the spread, and the combined figure can come out worse than every site in it - a number that describes a process nobody runs.',
+    demo(el) {
+      el.innerHTML = '<div data-role="plot"></div><div class="demo-controls">' + slider('gap', 'Difference between the two site averages', 0, 2.4, 0.1, 0) + '</div><p class="demo-read" data-role="read"></p>';
+      const LSL = 96, USL = 100;
+      const draw = () => {
+        const gap = Number(q(el, 'gap').value);
+        setOut(el, 'gap', gap.toFixed(1));
+        const rand = E.rng(3), rows = [];
+        const nz = () => { const u = Math.max(1e-12, rand()), v = rand(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+        for (let i = 0; i < 30; i++) rows.push({ site: 'Site A', value: 98.6 - gap / 2 + nz() * 0.5 });
+        for (let i = 0; i < 30; i++) rows.push({ site: 'Site B', value: 98.6 + gap / 2 + nz() * 0.5 });
+        const r = S.crossSite(rows, { lsl: LSL, usl: USL });
+        const pooled = S.capability(rows.map(x => x.value), { lsl: LSL, usl: USL });
+        const f = frame(640, 250, [94.5, 101.5], [0, 1], { l: 46, b: 36, xLabel: 'Purity (%)', yFmt: () => '' });
+        const band = (v, cls) => '<line class="' + cls + '" x1="' + f.sx(v) + '" x2="' + f.sx(v) + '" y1="20" y2="190"/>';
+        const strip = (vals, y, cls) => vals.map((v, i) => dot(f.sx(v), y + ((i % 3) - 1) * 7, cls, 3.5)).join("");
+        const a = rows.filter(x => x.site === 'Site A').map(x => x.value);
+        const b = rows.filter(x => x.site === 'Site B').map(x => x.value);
+        q(el, 'plot').innerHTML = svg(640, 250, 'Two sites against one specification', f.axes +
+          band(LSL, 'ref') + band(USL, 'ref') +
+          '<text class="lbl-strong" x="' + f.sx(LSL) + '" y="14" text-anchor="middle">LSL 96</text>' +
+          '<text class="lbl-strong" x="' + f.sx(USL) + '" y="14" text-anchor="middle">USL 100</text>' +
+          strip(a, 70, 'c1') + strip(b, 110, 'c3') + strip(rows.map(x => x.value), 160, 'c2') +
+          '<text x="8" y="74">Site A</text><text x="8" y="114">Site B</text><text x="8" y="164">Pooled</text>');
+        const pa = r.perSite.find(s => s.site === 'Site A'), pb = r.perSite.find(s => s.site === 'Site B');
+        const below = pooled.Ppk < Math.min(pa.Ppk, pb.Ppk);
+        q(el, 'read').innerHTML = 'Site A reaches <b>Ppk ' + pa.Ppk.toFixed(2) + '</b>, Site B <b>Ppk ' + pb.Ppk.toFixed(2) +
+          '</b>. Pooling all sixty results gives <b>Ppk ' + pooled.Ppk.toFixed(2) + '</b>' +
+          (below ? ' - <b>worse than either site</b>, because the pooled spread now contains the distance between them as well as the variation inside them.' : '.') + ' ' +
+          (r.poolable
+            ? 'The centres and the spreads both survive their tests, so the tool reports the combined index: here it is a fair summary of one process.'
+            : 'The tool withholds the combined index and says why. The per-site rows still stand - each is a correct statement about a process that exists.') +
+          ' Between-site differences account for <b>' + Math.round(r.betweenShare * 100) + '%</b> of the total spread' +
+          (r.betweenShare > 0.3 ? ', so the work is harmonising the sites, not tightening either one.' : '.') +
+          ' Drag the slider: nothing inside either site changes, only the gap between them, and the single number gets steadily worse while both real processes stay exactly as good as they were.';
+      };
+      q(el, 'gap').oninput = draw;
+      draw();
+    },
+    steps: ['Compute capability at each site separately. These are always the honest numbers.', 'Test whether the sites may be pooled at all: one test for the centres, one for the spreads.', 'Only if both survive does a combined index describe a real single process.', 'If they do not, report per site and say which assumption failed. Then ask how much of the total spread is between sites: that is what tells you whether harmonising is worth a programme.'],
+    when: 'Technology transfer, multi-site release, any comparability claim where somebody wants one figure for the product.',
+    watch: 'A combined index that looks poor is sometimes read as "both sites are struggling". Check the centres first - it may be that both sites are capable and simply disagree about where the target is, which is a much easier problem and a completely different investigation.',
+    where: 'The variance bench, fourth mode: give it a site column, a result column and the specification limits.',
+    quiz: { q: 'Site A reaches Ppk 1.41, Site B reaches 1.38, and pooling all the data gives 0.74. What is going on?', options: ['Both sites are marginal and the pooled figure is the honest one', 'The sites are centred in different places, so the pooled spread includes the gap between them', 'The pooled calculation is wrong'], answer: 1, why: 'Each site is comfortably capable against the same limits, so neither has a spread problem. A pooled figure far below both can only come from the distance between their centres being added to the spread. The fix is to find out why they sit apart - and until they do not, one combined index is not a statement about any real process.' }
+  });
+
+  add({
     id: 'codon-optimization', group: 'Optimizing with evolution', title: 'Codon optimization: evolving a gene without changing the protein',
     analogy: 'Spelling the same word in two languages. "Colour" and "color" read the same to a person, but one is what the local reader expects. The protein is the meaning; the codons are the spelling, and each host has its own preference.',
     intro: 'Most amino acids can be written with several codons, so a protein has astronomically many possible genes. A genetic algorithm breeds a population of spellings: it keeps the ones that score well, mixes them, and mutates a codon here and there. Drag through the generations below and watch a deliberately badly-spelled gene improve, one objective at a time.',

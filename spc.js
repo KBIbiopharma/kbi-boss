@@ -679,6 +679,95 @@
     };
   }
 
-  root.MLSpc = { normCdf, normInv, capability, imr, countChart, rareEvents, cusum, ewma, shortSigma, boxCoxLambda, nonNormalTail, box, snRatio, taguchi, attribute };
+  /* ---------- Capability across sites ----------
+     The question MSAT actually asks is "is this the same process at both sites", and the
+     tempting answer is one combined Cpk. That index is only meaningful if the sites are the
+     same process: if their means differ, the combined spread includes the gap between them
+     and describes a mixture nobody runs; if their spreads differ, the combined figure
+     flatters the worse site and penalises the better one.
+
+     So this works the way the shelf-life tool already works with batches: test whether the
+     groups may be pooled, report per-site either way, and withhold the combined index with
+     a reason when they may not. The two tests are the ones that matter - one for the means,
+     one for the spreads - and the spread test uses deviations from each site's median, which
+     survives the non-normal data this tool is usually pointed at. */
+  function oneWayF(groups) {
+    const all = groups.reduce((a, g) => a.concat(g), []);
+    const N = all.length, k = groups.length, grand = mean(all);
+    let ssb = 0, ssw = 0;
+    for (const g of groups) {
+      const m = mean(g);
+      ssb += g.length * (m - grand) * (m - grand);
+      for (const v of g) ssw += (v - m) * (v - m);
+    }
+    const df1 = k - 1, df2 = N - k;
+    if (df1 < 1 || df2 < 1 || ssw <= 0) return { F: null, p: null, df1, df2 };
+    const F = (ssb / df1) / (ssw / df2);
+    return { F, p: E.ibeta(df2 / 2, df1 / 2, df2 / (df2 + df1 * F)), df1, df2, ssb, ssw, grand };
+  }
+  const medianOf = a => { const s = a.slice().sort((x, y) => x - y), h = s.length >> 1; return s.length % 2 ? s[h] : (s[h - 1] + s[h]) / 2; };
+
+  function crossSite(rows, spec, opt) {
+    opt = opt || {};
+    const clean = (rows || []).map(r => (r ? { site: String(r.site === undefined ? '' : r.site).trim(), value: num(r.value) ? Number(r.value) : null } : null))
+      .filter(r => r && r.site !== '' && r.value !== null);
+    if (!clean.length) throw new Error('No usable rows. Each row needs a site and a numeric result.');
+    const names = [];
+    for (const r of clean) if (names.indexOf(r.site) < 0) names.push(r.site);
+    if (names.length < 2) throw new Error('Only one site here (' + names[0] + '). Comparing capability across sites needs at least two.');
+    if (!spec || (spec.lsl === null || spec.lsl === undefined) && (spec.usl === null || spec.usl === undefined)) {
+      throw new Error('Capability needs at least one specification limit. Without one there is nothing for the spread to be capable of.');
+    }
+    const MIN = opt.minPerSite === undefined ? 5 : opt.minPerSite;
+    const groups = names.map(nm => clean.filter(r => r.site === nm).map(r => r.value));
+    const thin = names.filter((nm, i) => groups[i].length < MIN);
+    if (thin.length) throw new Error('These sites have fewer than ' + MIN + ' results: ' + thin.join(', ') + '. A capability index from that few is mostly noise, and comparing it across sites would be comparing noise.');
+
+    const per = names.map((nm, i) => {
+      const cap = capability(groups[i], spec);
+      return { site: nm, n: groups[i].length, mean: cap.mean, sd: cap.sdOverall, Cp: cap.Cp, Cpk: cap.Cpk, Pp: cap.Pp, Ppk: cap.Ppk,
+        observedOut: cap.observedOut, tailsUsable: cap.tailsUsable, normal: cap.normality ? cap.normality.normal : null };
+    }).sort((a, b) => (a.Ppk === null ? -Infinity : a.Ppk) - (b.Ppk === null ? -Infinity : b.Ppk));
+
+    // Do the sites share a centre, and do they share a spread?
+    const means = oneWayF(groups);
+    const spreads = oneWayF(groups.map(g => { const md = medianOf(g); return g.map(v => Math.abs(v - md)); }));
+    const sameCentre = means.p === null ? null : means.p >= 0.05;
+    const sameSpread = spreads.p === null ? null : spreads.p >= 0.05;
+    const poolable = sameCentre === true && sameSpread === true;
+
+    /* How much of the total spread is the gap between sites rather than variation inside
+       them. This is the number that says whether harmonising the sites is worth anything. */
+    const allValues = clean.map(r => r.value);
+    const gm = mean(allValues);
+    const totalVar = allValues.length > 1 ? allValues.reduce((a, v) => a + (v - gm) * (v - gm), 0) / (allValues.length - 1) : 0;
+    const withinVar = means.ssw !== undefined && means.df2 > 0 ? means.ssw / means.df2 : null;
+    const betweenShare = totalVar > 0 && withinVar !== null ? Math.max(0, (totalVar - withinVar) / totalVar) : null;
+
+    const combined = poolable ? capability(allValues, spec) : null;
+    const best = per[per.length - 1], worst = per[0];
+
+    return {
+      sites: names.length, perSite: per, best: best.site, worst: worst.site,
+      meansTest: means, spreadsTest: spreads, sameCentre, sameSpread, poolable,
+      combined: combined ? { Cp: combined.Cp, Cpk: combined.Cpk, Pp: combined.Pp, Ppk: combined.Ppk, n: combined.n, mean: combined.mean, sd: combined.sdOverall } : null,
+      betweenShare, spread: { worstPpk: worst.Ppk, bestPpk: best.Ppk },
+      why: names.length + ' sites, ' + clean.length + ' results. ' +
+        'Centres: ' + (sameCentre === null ? 'not testable' : sameCentre ? 'no difference detected (p = ' + means.p.toFixed(3) + ')' : 'they differ (p = ' + (means.p < 0.001 ? '<0.001' : means.p.toFixed(3)) + ')') + '. ' +
+        'Spreads: ' + (sameSpread === null ? 'not testable' : sameSpread ? 'no difference detected (p = ' + spreads.p.toFixed(3) + ')' : 'they differ (p = ' + (spreads.p < 0.001 ? '<0.001' : spreads.p.toFixed(3)) + ')') + '. ' +
+        (poolable
+          ? 'On both counts these behave as one process, so a combined index is reported and means what it says.'
+          : 'So a combined index is withheld: ' +
+            (sameCentre === false && sameSpread === false ? 'the sites differ in both centre and spread'
+              : sameCentre === false ? 'the sites are centred differently, so a combined spread would include the gap between them and describe a mixture no site actually runs'
+                : 'the sites have different spreads, so one index would flatter the worse site and penalise the better one') +
+            '. Read the per-site rows instead; they are each correct.') +
+        (betweenShare === null ? '' : ' Between-site differences account for ' + Math.round(betweenShare * 100) + '% of the total spread' +
+          (betweenShare > 0.3 ? ', so harmonising the sites is where the capability is, not tightening any one of them.' : ', so most of the variation lives inside the sites rather than between them, and harmonising would buy little.')) +
+        ' Worst is ' + worst.site + (worst.Ppk === null ? '' : ' at Ppk ' + worst.Ppk.toFixed(2)) + ', best is ' + best.site + (best.Ppk === null ? '' : ' at Ppk ' + best.Ppk.toFixed(2)) + '.'
+    };
+  }
+
+  root.MLSpc = { normCdf, normInv, capability, crossSite, imr, countChart, rareEvents, cusum, ewma, shortSigma, boxCoxLambda, nonNormalTail, box, snRatio, taguchi, attribute };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.MLSpc;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

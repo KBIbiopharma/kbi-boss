@@ -5794,3 +5794,54 @@ test('the ICH Q2 results explain how to read them', () => {
   assert.ok(/res\.underpowered[\s\S]{0,200}\?/.test(panel), 'the robustness guidance must cover the underpowered case');
   assert.ok(/\.howto/.test(fs.readFileSync(path.join(ROOT, 'style.css'), 'utf8')), 'and the block needs its styling');
 });
+
+/* Capability across sites. The temptation MSAT faces is one combined Cpk, and that index is
+   only meaningful if the sites are the same process. If their centres differ, the pooled
+   spread swallows the gap between them and the combined figure describes a mixture nobody
+   runs - it can come out worse than every single site, which is the giveaway. So this works
+   the way the shelf-life tool works with batches: test, report per site either way, and
+   withhold the combined number with a reason. */
+test('capability across sites refuses one index when the sites are not one process', () => {
+  const rand = E.rng(3);
+  const nz = () => { const u = Math.max(1e-12, rand()), v = rand(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+  const mk = (site, m, sd, n) => E.range(n).map(() => ({ site, value: m + nz() * sd }));
+  const spec = { lsl: 96, usl: 100 };
+
+  // One process at two sites: the combined index is real and is reported.
+  const same = SPC.crossSite(mk('A', 98.2, 0.5, 30).concat(mk('B', 98.1, 0.52, 30)), spec);
+  assert.strictEqual(same.poolable, true);
+  assert.ok(same.combined && isFinite(same.combined.Ppk), 'a poolable set must get a combined index');
+  assert.ok(same.betweenShare < 0.15, 'with one process almost none of the spread is between sites, got ' + same.betweenShare);
+
+  /* Two centres. The combined index is withheld - and the reason it must be is that pooling
+     would report a capability worse than either site actually has. */
+  const shifted = SPC.crossSite(mk('A', 98.2, 0.5, 30).concat(mk('B', 97.0, 0.5, 30)), spec);
+  assert.strictEqual(shifted.poolable, false);
+  assert.strictEqual(shifted.combined, null, 'a combined index over two centres must be withheld');
+  assert.strictEqual(shifted.sameCentre, false);
+  assert.ok(shifted.betweenShare > 0.3, 'the gap between sites should dominate, got ' + shifted.betweenShare);
+  assert.ok(/mixture no site actually runs/.test(shifted.why), 'and the reason has to be stated');
+  // The claim behind the refusal, measured: pooling really is worse than every site.
+  const pooledAnyway = SPC.capability(mk('A', 98.2, 0.5, 30).concat(mk('B', 97.0, 0.5, 30)).map(r => r.value), spec);
+  for (const s of shifted.perSite) {
+    assert.ok(pooledAnyway.Ppk < s.Ppk, 'pooling two centres should score worse than site ' + s.site +
+      ' (' + pooledAnyway.Ppk.toFixed(2) + ' vs ' + s.Ppk.toFixed(2) + ') - that is why it is withheld');
+  }
+
+  // Two spreads, same centre: also not one process, for the other reason.
+  const spreads = SPC.crossSite(mk('A', 98.2, 0.3, 30).concat(mk('B', 98.2, 1.1, 30)), spec);
+  assert.strictEqual(spreads.sameCentre, true);
+  assert.strictEqual(spreads.sameSpread, false);
+  assert.strictEqual(spreads.combined, null);
+  assert.ok(/flatter the worse site/.test(spreads.why));
+
+  // Per-site rows are always produced, sorted worst first, and always correct.
+  assert.strictEqual(shifted.perSite.length, 2);
+  assert.ok(shifted.perSite[0].Ppk <= shifted.perSite[1].Ppk, 'worst site first');
+  assert.strictEqual(shifted.worst, shifted.perSite[0].site);
+
+  // Refusals.
+  assert.throws(() => SPC.crossSite(mk('A', 98, 0.5, 30), spec), /at least two/);
+  assert.throws(() => SPC.crossSite(mk('A', 98, 0.5, 3).concat(mk('B', 98, 0.5, 30)), spec), /fewer than 5 results/);
+  assert.throws(() => SPC.crossSite(mk('A', 98, 0.5, 30).concat(mk('B', 98, 0.5, 30)), {}), /specification limit/);
+});

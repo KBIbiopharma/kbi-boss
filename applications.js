@@ -563,8 +563,8 @@
           limit: 'Design generation is not design justification: the risk assessment behind the factor list stays yours.' }
       ],
       gaps: [
-        'No process capability modelling across sites in one step: run capability per site and compare, rather than expecting one combined index.',
         'No automated PPQ or stage-2 continued-verification report format.',
+        'No equivalence test between sites against a margin. The capability comparison asks whether the sites differ, which is not the same question as whether they are close enough to be interchangeable; that claim needs a margin set in advance and the equivalence bench, one attribute at a time.',
         'Nothing here reads a batch record. Every input is a table somebody has already assembled.'
       ]
     },

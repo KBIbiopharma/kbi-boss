@@ -20,7 +20,7 @@ validation project.
 
 ## What has been delivered since this evaluation was first written
 
-Three class A gaps are closed: the **rare-event chart**, **CUSUM and EWMA**, and the **ICH Q2 calculations**. Their rows below are marked
+Four class A gaps are closed: the **rare-event chart**, **CUSUM and EWMA**, the **ICH Q2 calculations**, and **capability across sites**. Their rows below are marked
 delivered and their department bullets are gone. The build fails if any gap here claims a capability the
 code can be shown to have, so this section cannot silently go stale again.
 
@@ -36,7 +36,7 @@ code can be shown to have, so this section cannot silently go stale again.
 | **ICH Q2 calculations** (linearity, LOD, LOQ, robustness) | A | AFS, QC | **Delivered.** On the limits bench, as a third mode. Linearity is judged by a lack-of-fit test against the method's own repeat error, or by a fitted squared term where no level was replicated - not by r-squared, which reads 0.995 on a curve that visibly bends and is the example the panel ships with. The limits name which of the three sigmas they used and whether the quantitation limit falls anywhere near a standard anybody ran. Robustness reports the smallest effect the design could have detected beside every p-value, so an underpowered study reads as uninformative rather than as a pass. |
 | **Reliability distributions** (Weibull, hazard, survival) | A | Facilities | MTBF work is currently limited to trends and comparisons. Self-contained. |
 | **Size distribution across bins** | A | Particle characterization | Counts per bin are handled as counts, with nothing modelled over the bin structure. |
-| **Capability across sites in one step** | A | MSAT | Small. Run per site and compare today. |
+| **Capability across sites in one step** | A | MSAT | **Delivered.** On the variance bench, as a fourth mode. Capability per site, plus a test of whether the sites may be pooled at all - one for the centres, one for the spreads. A combined index is reported only when both pass, and withheld with the reason when they do not, because pooling two centres returns a figure worse than either site has. The between-site share of the total spread says whether harmonising the sites is where the capability is. |
 | **Compendial and regulatory decision logic** | C | Microbiology, particle characterization, QA | Whether a result is an excursion or reportable is a regulated decision. The tool should keep refusing it. |
 | **Document writing** | B/C | QA and regulatory | There is no language model here by choice. A tool that claimed to draft a deviation report would be found out at the worst possible moment. |
 
@@ -145,8 +145,8 @@ Screening, ranking and the vector tool cover the core work. Imaging and sequence
 
 Comparability, transfer and characterization designs are well covered. One small class A gap.
 
-- **[A]** No process capability modelling across sites in one step: run capability per site and compare, rather than expecting one combined index.
 - **[C]** No automated PPQ or stage-2 continued-verification report format.
+- **[A]** No equivalence test between sites against a margin. The capability comparison asks whether the sites differ, which is not the same question as whether they are close enough to be interchangeable; that claim needs a margin set in advance and the equivalence bench, one attribute at a time.
 - **[B]** Nothing here reads a batch record. Every input is a table somebody has already assembled.
 
 

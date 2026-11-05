@@ -29,11 +29,16 @@
 
   // ---------- what each mode is for, and what it needs ----------
   const MODE_DESC = {
+    sites: 'Capability at each site, and whether the sites behave as one process at all. A single combined index is only reported when their centres and their spreads both survive a test; otherwise it is withheld, because one number over several different processes describes a mixture nobody runs.',
     components: 'Splits a total spread into between-group and within-group variation, says what share each owns, and names which groups genuinely differ rather than looking different by chance.',
     grr: 'Splits what you observe into repeatability, reproducibility and real part-to-part differences, and judges whether the measurement system is fit to make the decisions you make with it.',
     agree: 'For a judgement rather than a measurement: whether appraisers agree with themselves, with each other, and with the truth. Reports kappa beside the agreement percentage, because when the defect is rare an appraiser who passes everything scores high on the percentage and nothing on kappa.'
   };
   const SHAPES = {
+    sites: '<p class="hint">One row per result: which site it came from, and the number. At least five results per site, and the specification limits below &mdash; capability is a comparison against a limit, so without one there is nothing to be capable of.</p>' +
+      '<div class="table-scroll"><table class="shape-table"><thead><tr><th>Site</th><th>Purity_Pct</th></tr></thead><tbody>' +
+      '<tr><td>Site A</td><td>98.2</td></tr><tr><td>Site A</td><td>97.9</td></tr><tr><td>Site B</td><td>97.1</td></tr>' +
+      '<tr class="dim"><td colspan="2">&hellip; one row per batch, at least five per site</td></tr></tbody></table></div>',
     components: '<p class="hint">One row per measurement: which group it came from, and the number. Several measurements per group is what makes the split possible &mdash; with one each, there is nothing to compare the between-group spread against.</p>' +
       '<div class="table-scroll"><table class="shape-table"><thead><tr><th>Lot</th><th>Result</th></tr></thead><tbody>' +
       '<tr><td>L-2401</td><td>96.2</td></tr><tr><td>L-2401</td><td>96.6</td></tr><tr><td>L-2401</td><td>96.4</td></tr>' +
@@ -57,6 +62,7 @@
       '<p class="hint">Build the sample set close to half good and half defective, however unrepresentative that feels. A set matching real production &mdash; a few percent defective &mdash; cannot support a miss rate: there is almost nothing to miss, and the appraiser who passes every vial comes out looking excellent.</p>'
   };
   const EXAMPLES = {
+    sites: [['vc-ex1', 'Example: two sites, one process'], ['vc-ex2', 'Example: the sites are centred differently'], ['vc-ex3', 'Example: one site is far more variable']],
     components: [['vc-ex1', 'Example: one supplier lot is the problem'], ['vc-ex2', 'Example: the lots are fine, the assay is noisy'], ['vc-ex3', 'Example: analyst-to-analyst drift']],
     grr: [['vc-ex1', 'Example: a method fit for release'], ['vc-ex2', 'Example: one analyst out of step'], ['vc-ex3', 'Example: the instrument cannot resolve it']],
     agree: [['vc-ex1', 'Example: inspectors fit to qualify'], ['vc-ex2', 'Example: the rubber stamp'], ['vc-ex3', 'Example: one inspector over-rejects']]
@@ -109,7 +115,7 @@
   function readRows() {
     if (!table) throw new Error('Load some measurements first.');
     const col = id => table.columns.indexOf($(id).value);
-    if (mode() === 'components') {
+    if (mode() === 'components' || mode() === 'sites') {
       const gi = col('vc-group'), vi = col('vc-value');
       if (gi < 0 || vi < 0) throw new Error('Pick a grouping column and a result column.');
       if (gi === vi) throw new Error('The grouping column and the result column must be different.');
@@ -542,9 +548,20 @@
   /* Built here rather than taken from a real study, so each one illustrates exactly one
      situation and the write-up can be checked against what was injected. */
   function example(kind) {
-    const seeds = { components: { vc1: 7, vc2: 19, vc3: 41 }, grr: { vc1: 3, vc2: 23, vc3: 57 }, agree: { vc1: 13, vc2: 31, vc3: 61 } };
+    const seeds = { components: { vc1: 7, vc2: 19, vc3: 41 }, grr: { vc1: 3, vc2: 23, vc3: 57 }, agree: { vc1: 13, vc2: 31, vc3: 61 }, sites: { vc1: 3, vc2: 11, vc3: 29 } };
     const r = E.rng(seeds[mode()]['vc' + kind]);
     const N = () => { const u = Math.max(1e-12, r()); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * r()); };
+    if (mode() === 'sites') {
+      /* Three release datasets from two sites against a 96 to 100 specification. The three
+         examples are the three answers the tool can give: one process, two centres, two
+         spreads - because the interesting part is which of those you are looking at. */
+      const shift = kind === 2 ? 1.2 : 0;
+      const sdB = kind === 3 ? 1.1 : 0.5;
+      const lines = ['Site,Purity_Pct'];
+      for (let i = 0; i < 30; i++) lines.push('Site A,' + (98.2 + N() * 0.5).toFixed(2));
+      for (let i = 0; i < 30; i++) lines.push('Site B,' + (98.1 - shift + N() * sdB).toFixed(2));
+      return lines.join('\n');
+    }
     if (mode() === 'agree') {
       /* A visual inspection qualification set: 24 vials, half of them seeded with a real
          particle, three inspectors, two looks each. Half and half on purpose - a set built
@@ -605,20 +622,53 @@
     return lines.join('\n');
   }
 
+  function renderSites(r) {
+    const f2n = x => (x === null || x === undefined || !isFinite(x) ? '\u2013' : Number(x).toFixed(2));
+    $('vc-out').innerHTML = '<div class="card">' +
+      '<h3>Capability at each site</h3>' +
+      '<div class="table-scroll"><table class="pm"><thead><tr><th>Site</th><th>n</th><th>Mean</th><th>SD</th><th>Cp</th><th>Cpk</th><th>Pp</th><th>Ppk</th><th>Out of spec</th></tr></thead><tbody>' +
+      r.perSite.map(s => '<tr><td>' + h(s.site) + '</td><td>' + s.n + '</td><td>' + f2n(s.mean) + '</td><td>' + f2n(s.sd) +
+        '</td><td>' + f2n(s.Cp) + '</td><td>' + f2n(s.Cpk) + '</td><td>' + f2n(s.Pp) + '</td><td>' + f2n(s.Ppk) +
+        '</td><td>' + (s.observedOut === null || s.observedOut === undefined ? '\u2013' : s.observedOut) + '</td></tr>').join('') +
+      '</tbody></table></div>' +
+      '<div class="tiles">' +
+      '<div class="tile hero-tile"><div class="lbl">Combined index</div><div class="val">' +
+        (r.combined ? 'Ppk ' + f2n(r.combined.Ppk) : 'withheld') + '</div><div class="sub">' +
+        (r.poolable ? 'the sites behave as one process' : 'the sites are not one process') + '</div></div>' +
+      '<div class="tile"><div class="lbl">Between-site share of spread</div><div class="val">' +
+        (r.betweenShare === null ? '\u2013' : Math.round(r.betweenShare * 100) + '%') + '</div><div class="sub">the rest is inside the sites</div></div>' +
+      '<div class="tile"><div class="lbl">Worst site</div><div class="val">' + h(r.worst) + '</div><div class="sub">best is ' + h(r.best) + '</div></div>' +
+      '</div><p class="why">' + h(r.why) + '</p>' +
+      '<details class="howto" open><summary>How to read this, and what it means</summary><div class="howto-body">' +
+      '<p><b>The per-site rows are always the answer.</b> Each is a capability index for a process that actually exists. The combined index is the convenience, and it is the one that can be wrong.</p>' +
+      '<p><b>' + (r.poolable
+        ? 'These sites passed both tests, so the combined index describes a real single process and can go in the report.'
+        : 'The combined index is withheld, and that is the finding.') + '</b> ' +
+        (r.poolable ? '' : r.sameCentre === false
+          ? 'The sites sit at different centres, so pooling them inflates the spread with the gap between them: the combined number would describe a mixture no site runs, and would be worse than every site individually.'
+          : 'The sites have different spreads, so one index averages a tight process with a loose one, flattering the loose site and penalising the tight one.') + '</p>' +
+      '<p><b>Where the capability is.</b> ' + (r.betweenShare === null ? 'Not estimable here.'
+        : r.betweenShare > 0.3
+          ? Math.round(r.betweenShare * 100) + '% of the total spread is the difference between sites, so harmonising them is worth more than tightening any one of them. Start by asking why ' + h(r.worst) + ' sits where it does.'
+          : 'Only ' + Math.round(r.betweenShare * 100) + '% of the spread is between sites, so the variation lives inside them. Harmonising would buy little; reducing within-site variation is the work.') + '</p>' +
+      '<p><b>What this does not tell you.</b> Why the sites differ. Equipment, raw material lot, analyst and method version are all candidates, and separating them needs those columns in the data - the variance components mode is the next step.</p>' +
+      '</div></details></div>';
+  }
+
   // ---------- wiring ----------
   function showMode() {
     const m = mode();
     $('vc-mode-desc').textContent = MODE_DESC[m];
     $('vc-shape-body').innerHTML = SHAPES[m];
     $('vc-shape').querySelector('summary').textContent = 'What the data should look like';
-    $('vc-map-components').hidden = m !== 'components';
+    $('vc-map-components').hidden = m !== 'components' && m !== 'sites';
     $('vc-map-grr').hidden = m !== 'grr';
     $('vc-map-agree').hidden = m !== 'agree';
     $('vc-agree-note').hidden = m !== 'agree';
-    $('vc-spec').hidden = m !== 'grr';
+    $('vc-spec').hidden = m !== 'grr' && m !== 'sites';
     $('vc-spec-note').hidden = m !== 'grr';
     $('vc-advanced').hidden = m !== 'components';
-    $('vc-run').textContent = m === 'components' ? 'Split the variation' : m === 'agree' ? 'Check the agreement' : 'Check the measurement system';
+    $('vc-run').textContent = m === 'components' ? 'Split the variation' : m === 'agree' ? 'Check the agreement' : m === 'sites' ? 'Compare the sites' : 'Check the measurement system';
     $('vc-examples').innerHTML = EXAMPLES[m].map(([id, label]) => '<button class="btn ghost small" id="' + id + '" type="button">' + h(label) + '</button>').join('') +
       '<button class="btn ghost small" id="vc-clear" type="button">Clear</button>';
     bindExamples();
@@ -656,6 +706,11 @@
         last = { kind: 'agree', r: res, rows: got.rows };
         renderAgree(res, got.rows);
         window.MLVarianceRun = summaryAgree(res);
+      } else if (mode() === 'sites') {
+        const spec = { lsl: $('vc-lsl').value === '' ? null : Number($('vc-lsl').value), usl: $('vc-usl').value === '' ? null : Number($('vc-usl').value) };
+        const res = window.MLSpc.crossSite(got.rows.map(r => ({ site: r.group, value: r.value })), spec);
+        last = { kind: 'sites', r: res, rows: got.rows };
+        renderSites(res);
       } else {
         const res = V.gageRR(got.rows, { lsl: $('vc-lsl').value, usl: $('vc-usl').value });
         last = { kind: 'grr', r: res, rows: got.rows };

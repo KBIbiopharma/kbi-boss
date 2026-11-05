@@ -130,6 +130,7 @@
     'codon-optimization': { search: 'NSGA-II multi-objective genetic algorithm Pareto front' },
     extrapolation: { search: 'dangers of extrapolation regression outside the data range' },
     conformal: { search: 'conformal prediction distribution-free uncertainty' },
+    'across-sites': { search: 'process capability multiple sites pooled Cpk' },
     linearity: { search: 'method validation linearity residual plot lack of fit' },
     'detection-limits': { search: 'LOD LOQ limit of detection quantitation calculation ICH Q2' },
     'robustness-study': { search: 'analytical method robustness testing design of experiments' },
