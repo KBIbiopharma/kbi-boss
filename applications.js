@@ -591,7 +591,7 @@
       ],
       gaps: [
         'No live connection to anything: no historian, no SCADA, no LIMS. Export a file and load it.',
-        'No forecast of a trend forward. The tool detects that a level has moved and projects a stability trend to its specification, but it will not tell you where a monthly metric lands next quarter, and nothing here measures forecast accuracy.',
+        'No changepoint detection. A forecast here is fitted to the whole history, and nothing segments the series where it changed regime and refits from there, so a line modification or a raw-material change part way through the record is carried forward as if it were still in force. CUSUM will say a shift happened and roughly when; acting on that is still a human decision.',
         'Not a validated GxP system. Everything here is decision support with an audit trail attached.'
       ]
     },

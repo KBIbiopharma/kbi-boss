@@ -44,7 +44,7 @@
       <label for="tool">Technique</label>
       <select id="tool">
         <option value="analyze">Machine learning &amp; design of experiments</option>
-        <option value="stability">Linear regression &amp; confidence limits (ICH Q1E)</option>
+        <option value="stability">Trends over time: shelf life (ICH Q1E) &amp; forecasting</option>
         <option value="golden">PCA &amp; multivariate SPC (golden batch)</option>
         <option value="equivalence">Equivalence &amp; non-inferiority testing (TOST)</option>
         <option value="variance">Variance components, Gage R&amp;R &amp; grouped-data charts</option>
@@ -295,6 +295,12 @@
     <div class="card">
       <p class="summary">One row per measurement: a batch, a time point in months, and the result. Paste it, drop a CSV on it, or try the example. <a class="learn-link" href="learn.html#shelf-life" target="_blank" rel="noopener noreferrer">Learn how this works &#8599;</a></p>
       <div class="row-actions">
+        <label class="field">What are you working out
+          <select id="stab-mode">
+            <option value="shelf" selected>Shelf life from a stability study (ICH Q1E)</option>
+            <option value="forecast">Forecast a trend forward, and backtest it</option>
+          </select>
+        </label>
         <button class="btn ghost small" id="stab-sample" type="button">Load an example study</button>
         <button class="btn ghost small" id="stab-sample2" type="button">Example: batches that differ</button>
         <button class="btn ghost small" id="stab-clear" type="button">Clear</button>
@@ -303,6 +309,12 @@
       <textarea id="stab-data" rows="6" spellcheck="false" placeholder="BatchID,Month,Purity_Pct&#10;B-001,0,99.4&#10;B-001,3,99.1&#10;B-001,6,98.7"></textarea>
       <input type="file" id="stab-file" accept=".csv,.tsv,.txt,.json,.ndjson" class="file-input">
       <p class="hint" id="stab-read" aria-live="polite"></p>
+      <div class="controls" id="stab-fc" hidden>
+        <label>Series column <select id="fc-series"></select></label>
+        <label>Cycle length, if the series repeats (optional) <input id="fc-period" type="number" min="2" step="1" placeholder="e.g. 12 for monthly"></label>
+        <label>How many periods ahead <input id="fc-horizon" type="number" min="1" step="1" value="3"></label>
+        <button class="btn primary" id="fc-run" type="button">Backtest and forecast</button>
+      </div>
       <div class="controls" id="stab-map" hidden>
         <label>Time column (months)
           <select id="stab-time"></select>
@@ -1288,6 +1300,7 @@
 <script src="samples.js"></script>
 <script src="applications.js"></script>
 <script src="stability.js"></script>
+<script src="forecast.js"></script>
 <script src="codon.js"></script>
 <script src="fold.js"></script>
 <script src="ga.js"></script>

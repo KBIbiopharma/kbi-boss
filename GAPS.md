@@ -20,7 +20,7 @@ validation project.
 
 ## What has been delivered since this evaluation was first written
 
-Five class A gaps are closed: the **rare-event chart**, **CUSUM and EWMA**, the **ICH Q2 calculations**, **capability across sites**, and **subgroup charts**. Their rows below are marked
+Six class A gaps are closed: the **rare-event chart**, **CUSUM and EWMA**, the **ICH Q2 calculations**, **capability across sites**, **subgroup charts**, and **forecasting with a backtest**. Their rows below are marked
 delivered and their department bullets are gone. The build fails if any gap here claims a capability the
 code can be shown to have, so this section cannot silently go stale again.
 
@@ -34,7 +34,7 @@ code can be shown to have, so this section cannot silently go stale again.
 | **Image and spectrum reading** | B | Cell line, downstream, AFS, QC, particle characterization, microbiology | Six departments, and not buildable here. See the PICTS note below: the right move is to consume a classifier's output, not to become one. |
 | **Live connections** (historian, BMS, SCADA, LIMS) | B | GMP manufacturing, facilities, QC, MSAT | Export-and-load is the deliberate design. A live connection means a server, credentials and a validation burden. |
 | **CUSUM and EWMA** | A | GMP manufacturing, and useful to facilities and microbiology | **Delivered.** Both run beside the individuals chart at a matched false-alarm rate, with the baseline stated and the start of the drift estimated. At a one-sigma shift these signal after about 10 points against 45 for a three-sigma chart. |
-| **Time-series forecasting and backtesting** | A | Upstream process development, GMP manufacturing | The tool projects a trend to a specification (ICH Q1E) and detects that a level has moved (CUSUM, EWMA), but it cannot forecast a trajectory forward and nothing measures forecast accuracy. The bounded build is a rolling-origin backtest with a seasonal-naive baseline, exponential smoothing with a damped trend, and conformal forecast intervals. Build the backtest first: it is what lets any method, including a bought-in model, be held to a measured number on this site's own data rather than a vendor's. |
+| **Time-series forecasting and backtesting** | A | Upstream process development, GMP manufacturing | **Delivered.** Naive, seasonal naive, drift, exponential smoothing, Holt, damped trend and Holt-Winters, every one scored by rolling-origin backtest with its parameters fitted inside each origin. The headline is MASE against a baseline the method has to beat, and when it does not the result says so and tells you to forecast with the baseline. Intervals come from the errors the winner actually made across the origins, so their coverage is measured. This is also the harness for anything bought in: a vendor's forecasts arrive as a column and get the same origins, the same baseline and the same number. |
 | **ICH Q2 calculations** (linearity, LOD, LOQ, robustness) | A | AFS, QC | **Delivered.** On the limits bench, as a third mode. Linearity is judged by a lack-of-fit test against the method's own repeat error, or by a fitted squared term where no level was replicated - not by r-squared, which reads 0.995 on a curve that visibly bends and is the example the panel ships with. The limits name which of the three sigmas they used and whether the quantitation limit falls anywhere near a standard anybody ran. Robustness reports the smallest effect the design could have detected beside every p-value, so an underpowered study reads as uninformative rather than as a pass. |
 | **Reliability distributions** (Weibull, hazard, survival) | A | Facilities | MTBF work is currently limited to trends and comparisons. Self-contained. |
 | **Size distribution across bins** | A | Particle characterization | Counts per bin are handled as counts, with nothing modelled over the bin structure. |
@@ -84,7 +84,7 @@ The same shape as particle characterization. Counted, rare, judged by eye: the t
 Well covered for measured data. The gaps are the two chart families it does not have, and both are class A.
 
 - **[B]** No live connection to anything: no historian, no SCADA, no LIMS. Export a file and load it.
-- **[A]** No forecast of a trend forward. The tool detects that a level has moved and projects a stability trend to its specification, but it will not tell you where a monthly metric lands next quarter, and nothing here measures forecast accuracy.
+- **[A]** No changepoint detection. A forecast here is fitted to the whole history, and nothing segments the series where it changed regime and refits from there, so a line modification or a raw-material change part way through the record is carried forward as if it were still in force. CUSUM will say a shift happened and roughly when; acting on that is still a human decision.
 - **[C]** Not a validated GxP system. Everything here is decision support with an audit trail attached.
 
 

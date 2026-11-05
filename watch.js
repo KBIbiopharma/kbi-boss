@@ -130,6 +130,7 @@
     'codon-optimization': { search: 'NSGA-II multi-objective genetic algorithm Pareto front' },
     extrapolation: { search: 'dangers of extrapolation regression outside the data range' },
     conformal: { search: 'conformal prediction distribution-free uncertainty' },
+    'forecast-backtest': { search: 'time series cross validation rolling origin MASE baseline' },
     'subgroup-charts': { search: 'X-bar and R chart rational subgrouping explained' },
     'across-sites': { search: 'process capability multiple sites pooled Cpk' },
     linearity: { search: 'method validation linearity residual plot lack of fit' },

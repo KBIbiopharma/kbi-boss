@@ -5561,7 +5561,7 @@ test('no gap claims a capability the code already has', () => {
     { what: 'capability across sites in one step', claim: /\bno process capability modelling across sites/i, built: () => has(SPC.crossSite) || has(SPC.acrossSites) },
     { what: 'a size distribution across the bins', claim: /\bno size distribution fitted across the bins/i, built: () => has(SPC.sizeDistribution) || has(SPC.binnedSize) },
     { what: 'the named ICH Q2 calculations', claim: /LOD and LOQ are not implemented|\bno ICH Q2 validation package/i, built: () => fs.existsSync(path.join(ROOT, 'ichq2.js')) },
-    { what: 'forecasting a trajectory forward', claim: /does not fit kinetics or forecast a trajectory forward/i, built: () => fs.existsSync(path.join(ROOT, 'forecast.js')) }
+    { what: 'forecasting a trend forward', claim: /\bno forecast of a trend forward/i, built: () => fs.existsSync(path.join(ROOT, 'forecast.js')) }
   ];
 
   for (const c of CLOSERS) {
@@ -5946,4 +5946,64 @@ test('subgroup charts read the spread chart first and refuse to be compared with
   // Refusals.
   assert.throws(() => SPC.subgroupChart(mk(20, 1, () => 100)), /subgroup of one has no within-subgroup spread/);
   assert.throws(() => SPC.subgroupChart(mk(4, 5, () => 100 + nz())), /Only 4 subgroups/);
+});
+
+/* Forecasting, and the part that matters: measuring whether a forecast is worth anything.
+   Every method is scored by rolling origin - fit on what came before, forecast forward,
+   score against what actually happened - and the headline is MASE against a baseline the
+   method has to beat. A forecaster that cannot beat "carry the last value forward" has
+   earned nothing, however good its chart looks. */
+test('forecasts are scored by rolling origin against a baseline they have to beat', () => {
+  const F = require(path.join(ROOT, 'forecast.js'));
+  const rand = E.rng(5);
+  const nz = () => { const u = Math.max(1e-12, rand()), v = rand(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+
+  // A real trend: a trend-following method should win, and should beat naive.
+  const trend = E.range(40).map((_, i) => 100 + 0.8 * i + nz() * 2);
+  const t1 = F.backtest(trend, { horizon: 1 });
+  assert.ok(['drift', 'holt', 'damped'].includes(t1.winner.key), 'a trend series should be won by a trend method, got ' + t1.winner.key);
+  assert.strictEqual(t1.beatsBaseline, true);
+  assert.ok(t1.winner.mase < 1, 'at one step the winner should beat the naive scale, got ' + t1.winner.mase.toFixed(3));
+  assert.strictEqual(t1.maseIsDirect, true);
+
+  /* MASE is scaled by the ONE-step naive error even when forecasting further out, so values
+     above 1 are normal at longer horizons and are not a failure. Saying otherwise - which an
+     earlier draft of this did - turns a working method into a failing one on the page. */
+  const t3 = F.backtest(trend, { horizon: 3 });
+  assert.strictEqual(t3.maseIsDirect, false);
+  assert.ok(/figures above 1 are normal at this horizon/.test(t3.why), 'the horizon caveat must be stated');
+  assert.ok(t3.winner.mase < t3.baseline.mase, 'the comparison that decides it is against the baseline at the same horizon');
+
+  // Seasonal series: the baseline becomes seasonal naive, because that is what must be beaten.
+  const seasonal = E.range(48).map((_, i) => 100 + 6 * Math.sin(2 * Math.PI * i / 12) + nz() * 1.2);
+  const s = F.backtest(seasonal, { period: 12, horizon: 3 });
+  assert.strictEqual(s.scaledBy, 'seasonal naive');
+  assert.strictEqual(s.baseline.key, 'snaive');
+  assert.ok(s.results.some(r => r.key === 'holtwinters'), 'a seasonal series should offer a seasonal method');
+
+  /* Nothing is scored on data it was fitted to. The giveaway would be a method that looks
+     excellent in backtest and cannot be beaten by the baseline on a series with no signal. */
+  const noise = E.range(40).map(() => 100 + nz() * 2);
+  const nres = F.backtest(noise, { horizon: 1 });
+  assert.ok(nres.results.every(r => isFinite(r.mase)), 'every method must produce a finite score');
+  // On white noise, smoothing genuinely does beat naive - naive carries the noise forward.
+  assert.ok(nres.winner.mase < 1, 'smoothing should beat naive on white noise, got ' + nres.winner.mase.toFixed(3));
+
+  // Intervals come from the backtest errors, so their coverage is measured not assumed.
+  assert.ok(s.interval && s.interval.halfWidth > 0, 'a conformal interval should be produced');
+  assert.ok(Math.abs(s.interval.coverage - s.interval.confidence) < 0.12,
+    'measured coverage ' + s.interval.coverage.toFixed(2) + ' should be near the ' + s.interval.confidence + ' claimed');
+  assert.ok(/measured rather than assumed/.test(s.why));
+
+  // And a forecast for the next h periods is produced from the full series.
+  assert.strictEqual(s.forecast.length, 3);
+  assert.ok(s.forecast.every(v => isFinite(v)));
+
+  // Refusals.
+  assert.throws(() => F.backtest(E.range(8).map((_, i) => i)), /Need at least/);
+  assert.throws(() => F.backtest(E.range(40).map(() => 7)), /nothing to forecast/);
+  /* 30 points with a cycle of 12 clears the length gate and trips the one that matters:
+     two and a half cycles is not enough to fit a seasonal pattern worth having. */
+  assert.throws(() => F.backtest(E.range(30).map((_, i) => i + (i % 12)), { period: 12 }), /three full cycles/);
+  assert.throws(() => F.backtest([1, 2, null, 4]), /not a zero/);
 });

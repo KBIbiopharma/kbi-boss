@@ -6,6 +6,7 @@
   const E = window.MLEngine, C = window.Charts, A = window.MLAgent, D = window.MLDoe;
   const S = window.MLSpc, V = window.MLVariance, TL = window.MLTolerance, U = window.MLUncertainty;
   const Q2 = window.MLIchQ2;
+  const FC = window.MLForecast;
   const W = window.MLWatch;
   const h = C.esc, fmt = A.fmt, pct = A.pct;
   const range = E.range;
@@ -2488,6 +2489,53 @@
     watch: 'This is the same trap as reading a large p-value as proof of no difference, and it is worse here because the study is deliberately small. Robustness studies are routinely declared passed on designs that could not have detected a problem twice the size of the specification.',
     where: 'The limits bench, third mode: pick Robustness, give the acceptable effect, and every p-value is reported beside the smallest effect the design could see.',
     quiz: { q: 'Eight runs, three parameters, nothing significant, and the smallest detectable effect is 4% against a specification window of ±2%. What does the study show?', options: ['The method is robust to all three parameters', 'Nothing useful: it could not have detected a problem twice the size of the whole specification window', 'The method is robust to within 4%'], answer: 1, why: 'A study blind to anything smaller than 4% cannot reassure you about a 2% window. The all-clear is a property of the design, not of the method. More runs or tighter execution is the fix; reporting it as a pass is how a fragile method reaches another site.' }
+  });
+
+  add({
+    id: 'forecast-backtest', group: 'Six Sigma and process control', title: 'Forecasting: the baseline you have to beat',
+    analogy: 'A weather forecaster who says "tomorrow will be like today" is right most of the time. Anything cleverer has to beat that, and a surprising amount of it does not.',
+    intro: 'Any method can be made to fit a line of history beautifully, because it was fitted to that history. The only question worth asking is how it does on points it had not seen. So every method here is scored by rolling origin - fit on what came before, forecast forward, compare with what actually happened, move on - and the score is the error divided by what the dullest possible forecast achieves.',
+    demo(el) {
+      const CASES = [['noise', 'A metric that just wobbles'], ['trend', 'A metric that is drifting'], ['season', 'A metric with an annual cycle']];
+      el.innerHTML = '<div class="demo-controls">' + CASES.map((c, i) => btn(c[0], c[1], i ? 'ghost' : 'primary')).join('') + '</div>' +
+        '<div data-role="series"></div><div data-role="board"></div><p class="demo-read" data-role="read"></p>';
+      const show = which => {
+        el.querySelectorAll('.demo-controls .btn').forEach(b => { b.className = 'btn ' + (b.getAttribute('data-role') === which ? 'primary' : 'ghost'); });
+        const rand = E.rng(5), n = 48;
+        const y = range(n).map(i => {
+          if (which === 'trend') return 100 + 0.7 * i + normal(rand) * 2.5;
+          if (which === 'season') return 100 + 7 * Math.sin(2 * Math.PI * i / 12) + normal(rand) * 1.5;
+          return 100 + normal(rand) * 2.5;
+        });
+        const r = FC.backtest(y, which === 'season' ? { period: 12, horizon: 1 } : { horizon: 1 });
+        const f = frame(640, 190, [0, n - 1], [Math.min(...y) - 2, Math.max(...y) + 2], { l: 46, b: 34, xLabel: 'Period' });
+        q(el, 'series').innerHTML = svg(640, 190, 'The series', f.axes +
+          '<path class="line thin" d="' + pathOf(y.map((v, i) => [i, v]), f) + '"/>' +
+          y.map((v, i) => dot(f.sx(i), f.sy(v), 'c1', 2.5)).join(''));
+        C.hbar(q(el, 'board'), r.results.map(m => ({
+          label: m.name.replace(/ \(.*\)$/, '') + (m.baseline ? ' (baseline)' : ''),
+          value: m.mase, cls: m.key === r.winner.key ? 'hi' : m.baseline ? 'accent' : '',
+          text: 'MASE ' + m.mase.toFixed(3)
+        })), { min: 0, max: Math.max(1.1, ...r.results.map(m => m.mase)) * 1.1, ref: { value: 1, label: 'baseline' } });
+        q(el, 'read').innerHTML = 'Scored over <b>' + r.origins + '</b> separate forecasts, each made without seeing what came next. Best: <b>' +
+          h(r.winner.name) + '</b> at MASE ' + r.winner.mase.toFixed(3) + '. ' +
+          (r.beatsBaseline === false
+            ? '<b>Nothing beat the baseline.</b> On this series the dullest forecast is as good as anything tried, so that is what you should use - and a method that cannot beat it has earned nothing, however convincing its chart looks.'
+            : 'That beats the ' + h(r.baseline.name.toLowerCase()) + ' baseline at ' + r.baseline.mase.toFixed(3) + ', so it is earning its place.') +
+          (which === 'noise'
+            ? ' Note what smoothing achieves here even though there is no signal at all: averaging beats carrying the last value forward, because the last value is pure noise. That is a real gain, and it is also the ceiling - no method can predict noise.'
+            : which === 'trend'
+              ? ' A drifting series is where trend methods pay off, and where the naive forecast is always one step behind.'
+              : ' With a cycle, the baseline becomes "the same month last year", which is a much harder thing to beat than "last month".');
+      };
+      CASES.forEach(c => { q(el, c[0]).onclick = () => show(c[0]); });
+      show('noise');
+    },
+    steps: ['Pick the horizon that matters: where the metric lands next month is a different question from next year, and a different method may win.', 'Score by rolling origin, never on the data the method was fitted to. Parameters have to be fitted inside each origin too, or the method has seen the future.', 'Judge against a baseline: carrying the last value forward, or the same point last cycle for a seasonal series. MASE is the error divided by what that baseline achieves.', 'If nothing beats the baseline, use the baseline. That is a result, not a failure.'],
+    when: 'Monthly process metrics, deviation counts, utility demand, anything where somebody asks where a number is heading.',
+    watch: 'A forecast assumes the future behaves like the past. A line modification, a new raw-material supplier or a process change breaks that, and no amount of backtesting on the old regime will warn you. And MASE is scaled by the one-step baseline error, so at longer horizons figures above 1 are normal - the comparison against the baseline row is what decides it.',
+    where: 'The trends bench: pick the forecast mode, give it the series column, a cycle length if it repeats, and how far ahead. The leaderboard is the backtest, not the fit.',
+    quiz: { q: 'A vendor shows you a forecasting model with R² of 0.94 on your historical data. What should you ask for?', options: ['The confidence intervals', 'Its MASE against a naive baseline, scored by rolling origin on data it never saw', 'A larger training set'], answer: 1, why: 'R² on fitted history measures how well it described the past, which any flexible method can do perfectly. The only number that matters is how it did on points it had not seen, against the dullest forecast available. If it cannot beat "carry the last value forward" on your own series, it has earned nothing - and you can run that comparison yourself in this tool before anyone signs anything.' }
   });
 
   add({

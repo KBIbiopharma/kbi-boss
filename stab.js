@@ -43,6 +43,9 @@
     opt('stab-time', t.columns, timeCol); opt('stab-batch', t.columns, batchCol);
     opt('stab-y', t.columns, yCol); opt('stab-cond', t.columns, condCol, true);
     $('stab-map').hidden = false;
+    if ($('fc-series')) { const numeric = E.profile(table).columns.filter(c => c.kind === 'numeric').map(c => c.name);
+      $('fc-series').innerHTML = numeric.map(c => '<option>' + c + '</option>').join(''); }
+    if ($('stab-mode')) showStabMode();
     $('stab-settings').hidden = false;
     fillConditions();
     describe();
@@ -284,6 +287,63 @@
     } catch (e) { fail(e.message); }
   }
 
+  function showStabMode() {
+    const fc = $('stab-mode').value === 'forecast';
+    $('stab-fc').hidden = !fc || !table;
+    $('stab-map').hidden = fc || !table;
+    $('stab-settings').hidden = fc || !table;
+    $('stab-out').innerHTML = ''; $('stab-error').hidden = true;
+  }
+
+  /* The series is one numeric column in time order. Rows are taken as given: a series whose
+     order has been shuffled by a spreadsheet sort is a different series, and nothing here
+     can detect that, so the order you load is the order it forecasts. */
+  function runForecast() {
+    $('stab-error').hidden = true;
+    const F = window.MLForecast;
+    if (!F) return fail('The forecasting module did not load.');
+    if (!table) return fail('Load some data first.');
+    const i = table.columns.indexOf($('fc-series').value);
+    if (i < 0) return fail('Pick the column holding the series.');
+    const vals = table.rows.map(r => E.toNumber(r[i])).filter(v => v !== null);
+    const period = $('fc-period').value === '' ? null : Number($('fc-period').value);
+    const horizon = $('fc-horizon').value === '' ? 1 : Number($('fc-horizon').value);
+    try {
+      renderForecast(F.backtest(vals, { period, horizon }), vals);
+      $('stab-out').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (e) { fail(e.message); }
+  }
+
+  function renderForecast(r, vals) {
+    const f3 = x => (x === null || x === undefined || !isFinite(x) ? '\u2013' : Number(x).toFixed(3));
+    const beat = r.beatsBaseline;
+    $('stab-out').innerHTML = '<div class="card"><h3>Backtest: every method scored on forecasts made before the answer was known</h3>' +
+      '<div class="table-scroll"><table class="pm"><thead><tr><th>Method</th><th>MASE</th><th>MAE</th><th>RMSE</th><th>Bias</th></tr></thead><tbody>' +
+      r.results.map(m => '<tr' + (m.key === r.winner.key ? ' class="hi"' : '') + '><td>' + h(m.name) + (m.baseline ? ' <b>(baseline)</b>' : '') +
+        '</td><td>' + f3(m.mase) + '</td><td>' + f3(m.mae) + '</td><td>' + f3(m.rmse) + '</td><td>' + f3(m.bias) + '</td></tr>').join('') +
+      '</tbody></table></div>' +
+      '<div class="tiles">' +
+      '<div class="tile hero-tile"><div class="lbl">Use this method</div><div class="val">' + h(beat === false ? (r.baseline ? r.baseline.name : r.winner.name) : r.winner.name) +
+        '</div><div class="sub">' + (beat === false ? 'nothing beat the baseline' : 'MASE ' + f3(r.winner.mase)) + '</div></div>' +
+      '<div class="tile"><div class="lbl">Rolling origins</div><div class="val">' + r.origins + '</div><div class="sub">' + r.horizon + ' step' + (r.horizon === 1 ? '' : 's') + ' ahead each</div></div>' +
+      (r.interval ? '<div class="tile"><div class="lbl">Interval half-width</div><div class="val">\u00b1' + f3(r.interval.halfWidth) +
+        '</div><div class="sub">caught ' + Math.round(r.interval.coverage * 100) + '% of ' + Math.round(r.interval.confidence * 100) + '% claimed</div></div>' : '') +
+      '</div>' +
+      (!r.forecast ? '' : '<p class="demo-read"><b>Next ' + r.horizon + ':</b> ' + r.forecast.map(v => f3(v)).join(', ') +
+        (r.interval ? ' (each \u00b1' + f3(r.interval.halfWidth) + ')' : '') + '</p>') +
+      '<p class="why">' + h(r.why) + '</p>' +
+      '<details class="howto" open><summary>How to read this, and what it means</summary><div class="howto-body">' +
+      '<p><b>' + (beat === false
+        ? 'Nothing here earned its place. The baseline scored at least as well as every method tried, so forecast with the baseline and treat anything fancier as unproven on this series. That is a real result, not a failure of the tool - most short, noisy process series are genuinely hard to beat.'
+        : 'The winning method beat the baseline over ' + r.origins + ' separate forecasts, each made without seeing what came next.') + '</b></p>' +
+      '<p><b>MASE.</b> The error divided by the one-step error the baseline makes. ' + (r.maseIsDirect
+        ? 'At one step ahead, below 1 is better than the baseline and at or above 1 is not.'
+        : 'The scale stays the one-step error even though you are forecasting ' + r.horizon + ' ahead, so figures above 1 are normal here. The comparison that decides it is the baseline row, scored over the same origins.') + '</p>' +
+      '<p><b>Bias</b> is the average signed error. Near zero means the method is as often high as low; a persistent sign means it is systematically chasing or lagging the series, which is worth more attention than a slightly better MASE.</p>' +
+      '<p><b>What this does not cover.</b> A forecast assumes the future behaves like the past. A planned change, a new raw-material lot or a line modification breaks that, and nothing here detects it - check whether anything changed before trusting a number a month out.</p>' +
+      '</div></details></div>';
+  }
+
   function clear() {
     table = null; last = null; window.MLStabilityRun = null;
     $('stab-data').value = ''; $('stab-out').innerHTML = ''; $('stab-read').textContent = '';
@@ -315,6 +375,11 @@
     ['stab-time', 'stab-batch', 'stab-y', 'stab-cond-value'].forEach(id => $(id).addEventListener('change', describe));
     $('stab-cond').addEventListener('change', () => { fillConditions(); describe(); });
     $('stab-run').addEventListener('click', run);
+    if ($('stab-mode')) {
+      $('stab-mode').addEventListener('change', showStabMode);
+      $('fc-run').addEventListener('click', runForecast);
+      showStabMode();
+    }
     $('stab-dir').addEventListener('change', showRelevantLimits);
     showRelevantLimits();
   }
