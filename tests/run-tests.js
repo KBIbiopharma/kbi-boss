@@ -5509,6 +5509,209 @@ test('the tail fraction tests what the slope only describes, by the measured mar
   assert.strictEqual(iv.bins[1].count, 350);
 });
 
+/* Changepoint detection is notorious for false findings and the reason is arithmetic: every
+   sequence of random numbers has a best split point, so testing the two sides of the best
+   split with a t-test gives a tiny p-value on data that never changed. This test measures
+   that mistake, measures that the permutation null fixes it, and pins every figure the
+   module quotes at a reader - including the two that contradicted my first guess.
+
+   Verified to bite: each assertion fails if its figure is moved. */
+test('a changepoint is tested against the best split the same numbers give in a random order', () => {
+  const CP = require(path.join(ROOT, 'changepoint.js'));
+  const normal = r => { let u = 0, v = 0; while (!u) u = r(); while (!v) v = r(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+  const flat = (seed, n, sd) => { const r = E.rng(seed), y = []; for (let i = 0; i < n; i++) y.push(100 + normal(r) * (sd === undefined ? 2 : sd)); return y; };
+  const step = (seed, n, at, shift, sd) => { const r = E.rng(seed), y = []; for (let i = 0; i < n; i++) y.push(100 + (i >= at ? shift : 0) + normal(r) * (sd === undefined ? 2 : sd)); return y; };
+
+  /* 1. The mistake, quantified. A t-test at the chosen split is the thing people actually do,
+        and on 40 points of pure noise it cries changepoint about 4 times in 10. */
+  let naive = 0, perm = 0, T = 150;
+  for (let s = 0; s < T; s++) {
+    const y = flat(s + 500, 40);
+    const bs = CP.bestSplit(y, 4);
+    const a = y.slice(0, bs.k), b = y.slice(bs.k);
+    const se = Math.sqrt(E.variance(a) / a.length + E.variance(b) / b.length);
+    if (E.tTestP(Math.abs(E.mean(a) - E.mean(b)) / se, a.length + b.length - 2) < 0.05) naive++;
+    if (CP.detect(y, { reps: 400, locReps: 100, seed: 3 }).changepoints.length) perm++;
+  }
+  assert.ok(naive / T > 0.25,
+    'the whole point of the permutation null is that the naive test is badly wrong; it fired only ' + (100 * naive / T).toFixed(0) + '% here, so the comparison quoted to the reader is not the one being made');
+  assert.ok(perm / T < 0.11,
+    'the permutation test claims about 5% false alarms on independent data; measured ' + (100 * perm / T).toFixed(1) + '% over ' + T + ' runs');
+
+  /* 2. Power and location on a real step, which is what makes it usable at all. */
+  /* Floors from measurement, not from hope: at 40 points and sd 2 a half-sigma step is
+     found about 17% of the time, a one-sigma step about 66%, and a two-sigma step always.
+     The half-sigma figure is worth keeping in view - it is the honest answer to "why did
+     it not find the change I know happened". */
+  const POWER = [[1.0, 0.08], [2.0, 0.50], [4.0, 0.95]];
+  for (const [shift, floor] of POWER) {
+    let hit = 0, errs = [];
+    for (let s = 0; s < 120; s++) {
+      const r = CP.detect(step(s + 900, 40, 20, shift), { reps: 400, locReps: 100, seed: 3 });
+      if (r.changepoints.length) { hit++; errs.push(Math.abs(r.changepoints[0].index - 20)); }
+    }
+    assert.ok(hit / 120 >= floor, 'a ' + (shift / 2) + '-sigma step should be found at least ' + (100 * floor) + '% of the time; measured ' + (100 * hit / 120).toFixed(0) + '%');
+    if (shift >= 4) assert.ok(E.median(errs) <= 2, 'a 2-sigma step should be located within a point or two; median error ' + E.median(errs));
+  }
+
+  /* 3. The location interval is reported because the position is uncertain, and it is quoted
+        as covering less than its percentiles imply. Hold it to what it measures. */
+  let cov = 0, got = 0;
+  for (let s = 0; s < 120; s++) {
+    const r = CP.detect(step(s + 4000, 60, 35, 4), { reps: 300, locReps: 300, seed: 17 });
+    const c = r.changepoints[0];
+    if (!c || c.locationLo === null) continue;
+    got++;
+    if (c.locationLo <= 35 && 35 <= c.locationHi) cov++;
+  }
+  assert.ok(got > 100, 'a 2-sigma step in 60 points should be found nearly always; found ' + got + ' of 120');
+  assert.ok(cov / got > 0.75 && cov / got < 0.95,
+    'the location interval is described as covering 83 to 87% rather than the 90% its percentiles imply; measured ' + (100 * cov / got).toFixed(0) + '%');
+
+  /* 4. The autocorrelation diagnostic. Computed on the raw series it reads high on a clean
+        step in independent noise - which would make the warning fire hardest exactly when the
+        method had just worked. It must be computed on the residuals about the segment means.
+        This is the defect the figures below exist to keep fixed. */
+  const stepRaw = [], stepRes = [];
+  for (let s = 0; s < 60; s++) {
+    const d = CP.detect(step(s + 9000, 60, 35, 8), { reps: 300, locReps: 150, seed: 17 });
+    stepRaw.push(d.lag1Raw); stepRes.push(d.lag1);
+    assert.strictEqual(d.autocorrelationWarning, false,
+      'a clean step in independent noise must not raise the autocorrelation warning: residual lag-1 came out ' + d.lag1.toFixed(2));
+  }
+  assert.ok(E.mean(stepRaw) > 0.6, 'the raw-series figure really is inflated by the step - that is why it is not the one used: measured ' + E.mean(stepRaw).toFixed(2));
+  assert.ok(Math.abs(E.mean(stepRes)) < 0.15, 'and the residual figure must come out near zero: measured ' + E.mean(stepRes).toFixed(2));
+
+  /* And it still catches genuine correlation, which is what the warning is for. The spurious
+     changepoint rates quoted in the module are measured here too. */
+  const SPUR = [[0.4, 0.15, 0.55], [0.6, 0.40, 0.80], [0.8, 0.55, 0.95]];
+  for (const [phi, lo, hi] of SPUR) {
+    let found = 0, warned = 0;
+    for (let s = 0; s < 60; s++) {
+      const r = E.rng(s + 9500), y = []; let x = 0;
+      for (let i = 0; i < 60; i++) { x = phi * x + normal(r) * Math.sqrt(1 - phi * phi); y.push(100 + x * 2); }
+      const d = CP.detect(y, { reps: 300, locReps: 150, seed: 17 });
+      if (d.changepoints.length) found++;
+      if (d.autocorrelationWarning) warned++;
+    }
+    assert.ok(found / 60 > lo && found / 60 < hi,
+      'the module tells the reader an AR(1) series with no changepoint produces one anyway at a measured rate; at phi=' + phi + ' it measured ' + (100 * found / 60).toFixed(0) + '%, outside the ' + (100 * lo) + '-' + (100 * hi) + '% the text rests on');
+    assert.ok(warned / 60 > 0.4,
+      'and the warning has to fire on most of them, or it is not protecting anybody; at phi=' + phi + ' it fired ' + (100 * warned / 60).toFixed(0) + '%');
+  }
+
+  /* 5. The capability claim, which is the one that changes a decision - and the one whose
+        DIRECTION my first guess got wrong. Both configurations quoted are re-measured. */
+  const cpk = (m, sd, lsl, usl) => Math.min(usl - m, m - lsl) / (3 * sd);
+  const wide = [], tight = [];
+  for (let s = 0; s < 150; s++) {
+    const a = CP.detect(step(s + 5000, 60, 35, 4), { reps: 300, locReps: 150, seed: 17 });
+    if (a.changepoints.length) wide.push(cpk(a.whole.mean, a.whole.sd, 94, 106) / cpk(104, 2, 94, 106));
+    const b = CP.detect(step(s + 7000, 60, 35, 2.2, 1), { reps: 300, locReps: 150, seed: 17 });
+    if (b.changepoints.length) tight.push(cpk(b.whole.mean, b.whole.sd, 94, 106) / cpk(102.2, 1, 94, 106));
+  }
+  assert.ok(E.mean(wide) > 1.3 && E.mean(wide) < 1.8,
+    'shifted toward its limit, the whole-history Cpk is quoted as overstating by about 1.56x; measured ' + E.mean(wide).toFixed(2) + 'x');
+  assert.ok(E.mean(tight) < 1,
+    'and on the tighter configuration it is quoted as UNDERstating, which is the point - the error has no reliable sign; measured ' + E.mean(tight).toFixed(2) + 'x');
+
+  // 6. The refusals, and the reported sd inflation that the panel's advice is gated on.
+  assert.throws(() => CP.detect([1, 2, 3, 4, 5, 6, 7, 8]), /twelve points/,
+    'below twelve points the best split in noise is as convincing as a real one, and that must be refused rather than reported');
+  const big = CP.detect(step(21, 60, 35, 8), { reps: 500, locReps: 200, seed: 17 });
+  assert.ok(big.inflation > 2, 'a 4-sigma step should inflate the whole-record sd past 2x; measured ' + big.inflation.toFixed(2));
+  assert.ok(/no safe-side argument/.test(big.why), 'and the panel must say the error has no reliable sign');
+  assert.ok(big.tests >= big.changepoints.length, 'the number of tests run has to be reported, because that is where the family-wise rate goes');
+  // A flat series must come back with no changepoint AND say what that does not mean.
+  const none = CP.detect(flat(77, 50), { reps: 500, locReps: 200, seed: 17 });
+  assert.strictEqual(none.changepoints.length, 0);
+  assert.ok(/does not mean nothing changed/.test(none.why), 'a null result must say what it does not establish');
+});
+
+/* A chart class that style.css does not define is not an error anywhere: the element renders
+   in the default colour and looks deliberate. seq.js had asked for a third series colour
+   since it was written and never got one, so its diversity curve drew in the same steel as
+   the line it was meant to be told apart from, and nothing complained. Same family as the
+   inline-style defect: silent in every test, visible only to a reader.
+
+   What this catches and what it does not, stated plainly rather than implied by the name.
+   It catches a class with NO rule anywhere in the stylesheet, which is the case above and
+   was verified by removing the s3 rules and watching it fail. It does NOT catch a class that
+   is styled for a different element - `.bar.bad` can be missing while `.tleaf.bad` exists,
+   and this test passes - because it would have to know which chart function each cls goes
+   to. So a new class on a chart type that has never used it still wants a look in a browser. */
+test('every chart class the code asks for is defined in the stylesheet', () => {
+  const css = fs.readFileSync(path.join(ROOT, 'style.css'), 'utf8');
+  const asked = new Map();
+  for (const f of fs.readdirSync(ROOT)) {
+    if (!/\.js$/.test(f)) continue;
+    const src = fs.readFileSync(path.join(ROOT, f), 'utf8');
+    /* Only whole literals. A `cls: 'c' + n` builds the name at runtime and the literal half
+       of it is a prefix, not a class, so the pattern requires the quote to close the name. */
+    for (const m of src.matchAll(/cls:\s*'([a-z][a-z0-9 _-]*)'/gi)) {
+      for (const c of m[1].trim().split(/\s+/)) {
+        if (!c || c.length < 2) continue;
+        if (!asked.has(c)) asked.set(c, new Set());
+        asked.get(c).add(f);
+      }
+    }
+  }
+  assert.ok(asked.size > 15, 'the chart classes could not be read out of the source; the scan found only ' + asked.size);
+  const missing = [];
+  for (const [c, files] of asked) {
+    if (!new RegExp('\\.' + c.replace(/-/g, '\\-') + '\\b').test(css)) missing.push(c + ' (asked for by ' + [...files].join(', ') + ')');
+  }
+  assert.deepStrictEqual(missing, [],
+    'these chart classes are passed to a chart but have no rule in style.css, so they render in the default colour and look intentional:\n  ' + missing.join('\n  '));
+});
+
+/* The gap said the forecast was "fitted to the whole history, and nothing segments the series
+   where it changed regime", so a mode nobody opens would not have closed it. The forecast
+   panel has to run the check itself and say so before the leaderboard - and it has to name
+   the MOST RECENT changepoint, because that is the one that starts the regime being forecast
+   from. My first version named changepoints[0] and called it "the clearest", which on a
+   two-step series pointed at the weaker, older step and handed back the wrong date. */
+test('the forecast panel checks for a regime change and names the one that matters', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'stab.js'), 'utf8');
+  const fc = src.slice(src.indexOf('function runForecast'), src.indexOf('function clear('));
+  assert.ok(fc.length > 500, 'the forecast section of stab.js could not be located');
+  assert.ok(/MLChangepoint/.test(fc),
+    'the forecast panel must run the changepoint check itself: a separate mode nobody opens does not close this gap');
+  assert.ok(/changepoints\[cp\.changepoints\.length - 1\]/.test(fc),
+    'the forecast warning must name the most recent changepoint, not the first by position');
+  assert.ok(!/the clearest at point/.test(fc),
+    'and must not call it "the clearest", which it is not chosen to be');
+  assert.ok(/most recent at point/.test(fc), 'the wording has to say which one it is naming');
+
+  // The mode is reachable, loaded and in the shipped build.
+  const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  assert.ok(/<option value="changepoint"/.test(html), 'the trends bench needs the changepoint mode in its selector');
+  assert.ok(/<script src="changepoint\.js">/.test(html), 'index.html must load changepoint.js');
+  assert.ok(/<script src="changepoint\.js">/.test(fs.readFileSync(path.join(ROOT, 'learn.html'), 'utf8')),
+    'and so must learn.html, or the lesson renders blank');
+  assert.ok(/changepoint\.js/.test(fs.readFileSync(path.join(ROOT, 'package.sh'), 'utf8')), 'package.sh must ship it');
+
+  /* The two shipped examples have to be the two cases that matter: one with a real step and
+     one that only wanders. The wandering one is the method's failure mode, and shipping it as
+     an example rather than a caveat is the point. */
+  const CP = require(path.join(ROOT, 'changepoint.js'));
+  const parse = text => text.trim().split('\n').slice(1).map(l => Number(l.split(',')[1]));
+  const cpExample = (() => {
+    const m = src.match(/function cpExample\(wander\) \{[\s\S]*?\n  \}/);
+    assert.ok(m, 'the changepoint examples must be generated, not typed in');
+    return new Function('E', 'return ' + m[0].replace('function cpExample', 'function cpExample') + '; ')(E);
+  })();
+  const stepped = CP.detect(parse(cpExample(false)), { reps: 800, locReps: 200, seed: 17 });
+  assert.ok(stepped.changepoints.length >= 1, 'the step example must actually contain a findable step');
+  assert.strictEqual(stepped.autocorrelationWarning, false, 'and must not trip the autocorrelation warning, or it teaches the wrong lesson');
+  assert.ok(stepped.inflation > 1.5, 'its whole-record spread must be visibly inflated, since that is what the panel points at: ' + stepped.inflation.toFixed(2));
+  const wandering = CP.detect(parse(cpExample(true)), { reps: 800, locReps: 200, seed: 17 });
+  assert.ok(wandering.changepoints.length >= 1,
+    'the wandering example exists to show a changepoint being found where none was put in; it found none, so it no longer demonstrates anything');
+  assert.strictEqual(wandering.autocorrelationWarning, true,
+    'and the warning must fire on it, because that is the protection being demonstrated');
+});
+
 test('the README figures for the academy match the academy', () => {
   const readme = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8');
   const src = fs.readFileSync(path.join(ROOT, 'learn.js'), 'utf8');
@@ -5721,7 +5924,7 @@ test('a reader can move through the course one lesson at a time', () => {
 
    Agreement is not truth. This ties each claim to the code instead: if the function that
    would close a gap can be shown to exist, no department may still be told the gap is open.
-   Build one of the two remaining class A items and this test fails until its claim is
+   Build the last remaining class A item and this test fails until its claim is
    removed - which is the only way a document like this stays honest without anyone
    remembering to check. */
 test('no gap claims a capability the code already has', () => {
@@ -5740,12 +5943,13 @@ test('no gap claims a capability the code already has', () => {
     { what: 'count charts', claim: /\bno (?:\w+ )*count charts?\b/i, built: () => has(SPC.countChart) },
     { what: 'a Box-Cox path for skewed data', claim: /\bno Box-Cox\b/i, built: () => has(SPC.boxCoxLambda) },
     { what: 'conformal prediction intervals', claim: /\bno (?:\w+ )*conformal\b/i, built: () => has(UNC.conformalQuantile) },
-    // The two class A items still open. Each becomes self-policing the day it is built.
+    // The one class A item still open. It becomes self-policing the day it is built.
     { what: 'reliability distributions', claim: /\bno reliability distributions|\bno Weibull fitting/i, built: () => fs.existsSync(path.join(ROOT, 'reliability.js')) },
     { what: 'capability across sites in one step', claim: /\bno process capability modelling across sites/i, built: () => has(SPC.crossSite) || has(SPC.acrossSites) },
     { what: 'a size distribution across the bins', claim: /\bno size distribution fitted across the bins/i, built: () => fs.existsSync(path.join(ROOT, 'particles.js')) },
     { what: 'the named ICH Q2 calculations', claim: /LOD and LOQ are not implemented|\bno ICH Q2 validation package/i, built: () => fs.existsSync(path.join(ROOT, 'ichq2.js')) },
-    { what: 'forecasting a trend forward', claim: /\bno forecast of a trend forward/i, built: () => fs.existsSync(path.join(ROOT, 'forecast.js')) }
+    { what: 'forecasting a trend forward', claim: /\bno forecast of a trend forward/i, built: () => fs.existsSync(path.join(ROOT, 'forecast.js')) },
+    { what: 'changepoint detection', claim: /\bno changepoint detection/i, built: () => fs.existsSync(path.join(ROOT, 'changepoint.js')) }
   ];
 
   for (const c of CLOSERS) {

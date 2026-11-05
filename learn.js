@@ -9,6 +9,7 @@
   const FC = window.MLForecast;
   const RL = window.MLReliability;
   const PD = window.MLParticles;
+  const CP = window.MLChangepoint;
   const W = window.MLWatch;
   const h = C.esc, fmt = A.fmt, pct = A.pct;
   const range = E.range;
@@ -2541,6 +2542,116 @@
   });
 
 
+
+
+  add({
+    id: 'changepoints', group: 'Six Sigma and process control', title: 'Changepoints: every random series has a best split',
+    analogy: 'Deal thirty playing cards into two piles, cutting wherever you like. One cut will separate high cards from low better than any other cut - guaranteed, every time, from a shuffled deck. Now imagine someone showing you that cut and telling you the deck changed halfway through. That is changepoint detection done badly, and it is the default.',
+    intro: 'A control chart, a capability index and a forecast all assume one process. Fit any of them to a record containing a line modification or a new raw-material supplier and the early data describes something that no longer exists. So you want to find where the series changed - and the moment you go looking, you hit the trap: the best split in pure noise is just as convincing as the best split in a real shift, because you chose it to be. The fix is not a better formula.',
+    demo(el) {
+      const CASES = [['trap', 'The trap: noise with a best split'], ['real', 'A real step, found'], ['wander', 'The failure mode: a series that only wanders']];
+      el.innerHTML = '<div class="demo-controls">' + CASES.map((c, i) => btn(c[0], c[1], i ? 'ghost' : 'primary')).join('') + '</div>' +
+        '<div data-role="chart"></div><div data-role="bars"></div><p class="demo-read" data-role="read"></p>';
+
+      const flat = seed => { const r = E.rng(seed), y = []; for (let i = 0; i < 40; i++) y.push(100 + normal(r) * 2); return y; };
+      const step = seed => { const r = E.rng(seed), y = []; for (let i = 0; i < 60; i++) y.push(100 + (i >= 35 ? 4 : 0) + normal(r) * 2); return y; };
+      const ar1 = seed => { const r = E.rng(seed), y = []; let x = 0; for (let i = 0; i < 60; i++) { x = 0.75 * x + normal(r) * Math.sqrt(1 - 0.5625); y.push(100 + x * 2); } return y; };
+
+      const plot = (y, res, label, trueAt) => {
+        const lo = Math.min(...y), hi = Math.max(...y), pad = (hi - lo) * 0.12 || 1;
+        const f = frame(640, 240, [0, y.length - 1], [lo - pad, hi + pad], { l: 50, b: 38, xLabel: 'Point in time order' });
+        let body = f.axes;
+        if (res) for (const c of res.changepoints) {
+          if (c.locationLo !== null && c.locationHi > c.locationLo)
+            body += '<rect class="cp-band" x="' + f.sx(c.locationLo) + '" y="' + 12 + '" width="' + Math.max(1, f.sx(c.locationHi) - f.sx(c.locationLo)) + '" height="' + (240 - 38 - 12) + '"/>';
+          body += '<path class="cp-line" d="' + pathOf([[c.index, lo - pad], [c.index, hi + pad]], f) + '"/>';
+        }
+        if (trueAt !== undefined) body += '<path class="target-line" d="' + pathOf([[trueAt, lo - pad], [trueAt, hi + pad]], f) + '"/>';
+        if (res) for (const sg of res.segments)
+          body += '<path class="cl-line" d="' + pathOf([[sg.from, sg.mean], [sg.to - 1, sg.mean]], f) + '"/>';
+        body += '<path class="line thin" d="' + pathOf(y.map((v, i) => [i, v]), f) + '"/>';
+        body += y.map((v, i) => dot(f.sx(i), f.sy(v), 'c1', 2.5)).join('');
+        q(el, 'chart').innerHTML = svg(640, 240, label, body);
+      };
+
+      const show = which => {
+        el.querySelectorAll('.demo-controls .btn').forEach(b => { b.className = 'btn ' + (b.getAttribute('data-role') === which ? 'primary' : 'ghost'); });
+        q(el, 'bars').innerHTML = '';
+
+        if (which === 'trap') {
+          /* Pure noise. The naive t-test at the chosen split is run over many series so the
+             rate is a measurement rather than one anecdote, and the permutation test is run
+             on the same series so the comparison is like for like. */
+          let naive = 0, perm = 0; const T = 120;
+          for (let s = 0; s < T; s++) {
+            const y = flat(s + 500);
+            const bs = CP.bestSplit(y, 4);
+            const a = y.slice(0, bs.k), b = y.slice(bs.k);
+            const se = Math.sqrt(E.variance(a) / a.length + E.variance(b) / b.length);
+            if (E.tTestP(Math.abs(E.mean(a) - E.mean(b)) / se, a.length + b.length - 2) < 0.05) naive++;
+            if (CP.detect(y, { reps: 300, locReps: 80, seed: 3 }).changepoints.length) perm++;
+          }
+          const y0 = flat(500);
+          const bs0 = CP.bestSplit(y0, 4);
+          plot(y0, { changepoints: [{ index: bs0.k, locationLo: null, locationHi: null }], segments: [
+            { from: 0, to: bs0.k, mean: bs0.meanBefore }, { from: bs0.k, to: y0.length, mean: bs0.meanAfter }] }, 'Noise, with its best split');
+          C.hbar(q(el, 'bars'), [
+            { label: 't-test at the best split', value: 100 * naive / T, cls: 'bad', text: (100 * naive / T).toFixed(0) + '%' },
+            { label: 'Compared against shuffled orders', value: 100 * perm / T, cls: 'hi', text: (100 * perm / T).toFixed(1) + '%' }
+          ], { min: 0, max: 100 * Math.max(0.5, naive / T) * 1.2, ref: { value: 5, label: '5% claimed' }, label: 'How often each method found a changepoint in data that never changed' });
+          q(el, 'read').innerHTML = 'These forty points come from <b>one distribution</b>. Nothing changed. But the best split still separates them at point <b>' +
+            (bs0.k + 1) + '</b>, with means of ' + fmt(bs0.meanBefore) + ' and ' + fmt(bs0.meanAfter) +
+            ' on either side - and a t-test on those two halves hands back a convincing p-value, because the cut was chosen to make it convincing. Over <b>' + T +
+            '</b> such series the t-test cried changepoint <b>' + (100 * naive / T).toFixed(0) + '%</b> of the time.' +
+            '<br><br>This is the same mistake as picking the largest of twenty effects and quoting its unadjusted p-value, and the fix is the same in spirit: make the null account for the search. Take your own numbers, shuffle them so time order is destroyed but the values are untouched, find the best split in the shuffled order, and repeat a few thousand times. That gives the distribution of <i>best split you would find in data with no changepoint at all</i>, measured on your own data with no formula and no normality assumption. On the same ' + T +
+            ' series that fired <b>' + (100 * perm / T).toFixed(1) + '%</b> of the time against the 5% it claims.';
+          return;
+        }
+
+        if (which === 'real') {
+          const y = step(4000);
+          const res = CP.detect(y, { reps: 1500, locReps: 400, seed: 17 });
+          plot(y, res, 'A real step, with the position interval shaded', 35);
+          const c = res.changepoints[res.changepoints.length - 1];
+          q(el, 'read').innerHTML = 'A 2-sigma step was put in at point <b>36</b> (the green line). It was found at point <b>' +
+            (c.index + 1) + '</b>, and the shaded band is the bootstrap range for the position: <b>' + (c.locationLo + 1) + ' to ' + (c.locationHi + 1) +
+            '</b>. That band is the part people skip, and it matters because somebody is going to take this number to a change record and look for what happened on that day. Measured over many runs, the band contains the true position <b>83 to 87%</b> of the time - less than the 90% its percentiles imply, because it conditions on the shift size being what was estimated. Check the whole range, not the single point.' +
+            '<br><br>The horizontal lines are each regime’s own mean, drawn only across the points it describes, and that is what you should be computing from. The whole record here has a spread <b>' +
+            res.inflation.toFixed(2) + '×</b> the last regime’s, because the step lands in it as though it were noise. The consequence is not what people expect: measured at an inflation of 1.34 the two sets of control limits caught a later shift about equally (73% against 75%), but at 2.3 the whole-history limits caught it <b>2%</b> of the time against <b>44%</b>. And capability moves in a direction with <b>no reliable sign</b> - on a process shifted toward its limit the whole-history Cpk read 0.52 against the 0.33 actually running, overstating by 1.56 times, while on a tighter configuration it understated. There is no safe-side argument for using the whole record.' +
+            '<br><br>What the method will not find: a half-sigma step in 40 points turns up only about <b>17%</b> of the time. "No changepoint" means no step big enough to stand out from this much noise, not "nothing changed".';
+          return;
+        }
+
+        const y = ar1(31);
+        const res = CP.detect(y, { reps: 1500, locReps: 400, seed: 17 });
+        plot(y, res, 'A series that only wanders');
+        C.hbar(q(el, 'bars'), [
+          { label: 'lag-1 = 0.2', value: 16, cls: '', text: '16%' },
+          { label: 'lag-1 = 0.4', value: 30, cls: '', text: '30%' },
+          { label: 'lag-1 = 0.55', value: 59, cls: 'bad', text: '59%' },
+          { label: 'lag-1 = 0.72', value: 87, cls: 'bad', text: '87%' }
+        ], { min: 0, max: 100, ref: { value: 5, label: '5% claimed' }, label: 'Changepoints found in series that never changed, by how correlated they are' });
+        q(el, 'read').innerHTML = 'This series has <b>no changepoint in it at all</b>. It is a process whose value depends partly on the previous value - which describes most real process series, because a vessel, a column or a room has memory. It found <b>' +
+          res.changepoints.length + '</b> changepoint' + (res.changepoints.length === 1 ? '' : 's') + ' anyway.' +
+          '<br><br>This is the dominant failure mode and it is worth understanding rather than memorising. A correlated series <i>wanders</i>: it spends a stretch above its average and a stretch below, and a wander looks exactly like a step to anything that compares one stretch against another. The shuffled null cannot see this, because shuffling destroys the very correlation that produces the wander - so the null is the wrong null for a series like this. The bars show how badly, measured on simulated series with nothing in them: at a lag-1 of 0.55 a changepoint is found in <b>59%</b> of them.' +
+          '<br><br>So the correlation is measured and reported, and it has to be measured on the residuals <i>within</i> each regime rather than on the raw series - a clean step makes the raw figure read 0.75 even when the noise is completely independent, because every point on one side of a step sits above the overall mean and that is what lag-1 measures. Computed on the raw series the warning would fire hardest exactly when the method had just worked. Here the within-regime correlation is <b>' +
+          res.lag1.toFixed(2) + '</b>, which is high, and the panel says so before it says anything else.';
+      };
+      CASES.forEach(c => { q(el, c[0]).onclick = () => show(c[0]); });
+      show('trap');
+    },
+    steps: [
+      'Make sure the rows are in time order. Nothing can check this, and a sheet sorted by batch ID is a different series that will still produce changepoints.',
+      'Look at the reported within-regime correlation first. If it is high, treat every position as a date to check rather than a finding - that is the failure mode, not a footnote.',
+      'Read the position as a range, not a point, and take the whole range to the change record.',
+      'Recompute your limits, capability and forecast from the last regime. The whole record is describing a process you are no longer running.',
+      'Then find out what the change was. A changepoint is a date; the value of a date is that it is specific enough to check a change record against.'
+    ],
+    when: 'Any process metric with a long record: impurity trends, yield, deviation counts, utility readings, a release attribute over two years. Also before any capability or forecast claim on a long history, because both assume one regime and neither checks.',
+    watch: 'Autocorrelation, which is the big one and is measured for you. After that: binary segmentation tests each segment separately, so each p-value is honest on its own stretch while the family of them is not - treat changepoints after the first as weaker, and the number of tests run is reported for that reason. And this finds steps in the MEAN only. A process that became more variable at an unchanged average is invisible here, and a gradual drift has no single best cut, so forcing one on a ramp gives a position with no meaning.',
+    where: 'The trends bench, fourth mode: give it the series column in time order. The forecast mode also runs this check automatically and says so before the leaderboard, because a forecast fitted across a regime boundary has learned to average two processes.',
+    quiz: { q: 'A yield series of 60 points gives a changepoint at point 41 with p below 0.001. The within-regime lag-1 autocorrelation is reported as 0.58. What is the right next step?', options: ['Act on it: p below 0.001 is decisive, and the position is well determined', 'Treat point 41 as a date to check against the change record, because at this correlation the method finds changepoints in most series that never changed', 'Discard the finding: the autocorrelation makes the analysis invalid'], answer: 1, why: 'At a within-regime lag-1 around 0.55 this method found a changepoint in 59% of simulated series that had none, because a correlated series wanders and a wander looks like a step - and the shuffled null cannot reproduce a wander, so the p-value is answering the wrong question. That does not make the finding worthless, which is why the third option is wrong: it makes it a hypothesis with a specific date attached, and a specific date is checkable. Go to the change record for the window around point 41 and look for a line modification, a new material lot or a vessel change. If you find one, you have a finding; if the record is clean across the whole position range, you probably have a wander.' }
+  });
 
   add({
     id: 'size-distribution', group: 'Six Sigma and process control', title: 'Counts versus distributions: the same number, a different population',

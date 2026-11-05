@@ -45,6 +45,8 @@
     $('stab-map').hidden = false;
     if ($('fc-series')) { const numeric = E.profile(table).columns.filter(c => c.kind === 'numeric').map(c => c.name);
       $('fc-series').innerHTML = numeric.map(c => '<option>' + c + '</option>').join(''); }
+    if ($('cp-series')) { const nums = E.profile(t).columns.filter(c => c.kind === 'numeric').map(c => c.name);
+      $('cp-series').innerHTML = nums.map(c => '<option>' + h(c) + '</option>').join(''); }
     if ($('rel-time')) fillReliability(t);
     if ($('stab-mode')) showStabMode();
     $('stab-settings').hidden = false;
@@ -309,21 +311,138 @@
   }
 
   function showStabMode() {
-    const m = $('stab-mode').value, fc = m === 'forecast', rel = m === 'reliability';
+    const m = $('stab-mode').value, fc = m === 'forecast', rel = m === 'reliability', cp = m === 'changepoint';
     $('stab-fc').hidden = !fc || !table;
     if ($('stab-rel')) $('stab-rel').hidden = !rel || !table;
-    $('stab-map').hidden = fc || rel || !table;
-    $('stab-settings').hidden = fc || rel || !table;
+    if ($('stab-cp')) $('stab-cp').hidden = !cp || !table;
+    $('stab-map').hidden = fc || rel || cp || !table;
+    $('stab-settings').hidden = fc || rel || cp || !table;
     /* The example buttons load different shapes of data per mode. A stability study has no
        failure times in it and a failure record has no batches, so offering the wrong example
        just produces a confusing refusal. */
     if ($('stab-sample3')) {
       $('stab-sample3').hidden = !rel;
       $('stab-sample4').hidden = !rel;
-      $('stab-sample').hidden = rel;
-      $('stab-sample2').hidden = rel;
+      $('stab-sample5').hidden = !cp;
+      $('stab-sample6').hidden = !cp;
+      $('stab-sample').hidden = rel || cp;
+      $('stab-sample2').hidden = rel || cp;
     }
     $('stab-out').innerHTML = ''; $('stab-error').hidden = true;
+  }
+
+  // ---------- changepoints ----------
+  /* Two series: a line change part way through, and one that only wanders. The second is the
+     one that matters, because it is what a correlated process looks like and what the method
+     is most likely to get wrong - so it ships as an example rather than as a caveat. */
+  function cpExample(wander) {
+    const r = E.rng(wander ? 31 : 21);
+    const N = () => { const u = Math.max(1e-12, r()); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * r()); };
+    const lines = ['Batch,Impurity_Pct'];
+    let x = 0;
+    for (let i = 0; i < 60; i++) {
+      const v = wander
+        ? (x = 0.75 * x + N() * Math.sqrt(1 - 0.75 * 0.75), 2.0 + x * 0.2)
+        : 2.0 + (i >= 35 ? 0.8 : 0) + N() * 0.2;
+      lines.push('B-' + String(i + 1).padStart(3, '0') + ',' + v.toFixed(3));
+    }
+    return lines.join('\n');
+  }
+
+  function runChangepoint() {
+    $('stab-error').hidden = true;
+    const CP = window.MLChangepoint;
+    if (!CP) return fail('The changepoint module did not load.');
+    if (!table) return fail('Load some data first.');
+    const i = table.columns.indexOf($('cp-series').value);
+    if (i < 0) return fail('Pick the column holding the series.');
+    const vals = table.rows.map(r => E.toNumber(r[i])).filter(v => v !== null);
+    const minSeg = $('cp-min').value === '' ? undefined : Number($('cp-min').value);
+    try {
+      renderChangepoint(CP.detect(vals, { minSegment: minSeg, reps: 2000, locReps: 500, seed: 17 }), vals);
+      $('stab-out').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (e) { fail(e.message); }
+  }
+
+  function renderChangepoint(r, vals) {
+    const name = $('cp-series').value;
+    const t4 = v => (v === null || v === undefined || !isFinite(v) ? '\u2013' : Number(v).toPrecision(4));
+    const found = r.changepoints.length;
+    const pFmt = p => (p < 1 / (r.reps + 1) + 1e-12 ? 'below 1 in ' + (r.reps + 1) : p.toFixed(4));
+
+    $('stab-out').innerHTML = '<div class="card"><h3>' + (found ? 'The series changed regime' : 'No change of regime found') + '</h3>' +
+      '<div class="tiles">' +
+      '<div class="tile hero-tile"><div class="lbl">Changepoints</div><div class="val">' + found +
+        '</div><div class="sub">' + (found ? 'in ' + r.n + ' points' : 'one regime throughout ' + r.n + ' points') + '</div></div>' +
+      '<div class="tile"><div class="lbl">Use this mean</div><div class="val">' + t4(r.lastRegime.mean) +
+        '</div><div class="sub">' + (found ? 'the last regime, ' + r.lastRegime.n + ' points' : 'the whole record') + '</div></div>' +
+      '<div class="tile"><div class="lbl">Use this spread</div><div class="val">' + t4(r.lastRegime.sd) +
+        '</div><div class="sub">' + (r.inflation !== null && r.inflation > 1.05 ? 'the whole record reads ' + r.inflation.toFixed(2) + '\u00d7 this' : 'same as the whole record') + '</div></div>' +
+      '<div class="tile"><div class="lbl">Correlation within regimes</div><div class="val">' + (r.lag1 === null ? '\u2013' : r.lag1.toFixed(2)) +
+        '</div><div class="sub">' + (r.autocorrelationWarning ? 'high \u2013 see the warning' : 'low enough to trust the test') + '</div></div>' +
+      '</div>' +
+      '<div id="cp-chart" class="chart"></div>' +
+      (!found ? '' : '<div class="table-scroll"><table class="pm"><thead><tr><th>Position</th><th>Could be anywhere in</th><th>Mean before</th><th>Mean after</th><th>Shift</th><th>p</th></tr></thead><tbody>' +
+        r.changepoints.map(c => '<tr' + (c.depth === 0 ? ' class="hi"' : '') + '><td><b>' + (c.index + 1) + '</b>' + (c.depth ? ' <span class="hint">(found inside a segment)</span>' : '') +
+          '</td><td>' + (c.locationLo === null ? '\u2013' : (c.locationLo + 1) + ' to ' + (c.locationHi + 1)) +
+          '</td><td>' + t4(c.meanBefore) + '</td><td>' + t4(c.meanAfter) + '</td><td>' + (c.shift > 0 ? '+' : '') + t4(c.shift) +
+          '</td><td>' + pFmt(c.p) + '</td></tr>').join('') + '</tbody></table></div>') +
+      (r.segments.length < 2 ? '' : '<div class="table-scroll"><table class="pm"><thead><tr><th>Regime</th><th>Points</th><th>Mean</th><th>Spread</th></tr></thead><tbody>' +
+        r.segments.map((sg, i) => '<tr' + (i === r.segments.length - 1 ? ' class="hi"' : '') + '><td>' + (sg.from + 1) + ' to ' + sg.to +
+          (i === r.segments.length - 1 ? ' <b>(current)</b>' : '') + '</td><td>' + sg.n + '</td><td>' + t4(sg.mean) + '</td><td>' + t4(sg.sd) + '</td></tr>').join('') +
+        '</tbody></table></div>') +
+      (!r.autocorrelationWarning ? '' : '<p class="demo-read"><b>Read this before acting on the positions above.</b> The points inside each regime are correlated at ' +
+        r.lag1.toFixed(2) + ', and that is the main way this method goes wrong: a correlated series that never changed regime still wanders, and a wander looks like a step to anything that compares one stretch against another. Shuffling cannot reproduce a wander, so the null this was tested against is the wrong null for a series like yours. Measured on simulated series with no changepoint at all, a correlation this high produced a "significant" changepoint most of the time. Take these positions to the batch record as dates to check, not as findings.</p>') +
+      '<p class="why">' + h(r.why) + '</p>' +
+      '<details class="howto" open><summary>How to read this, and what to do about it</summary><div class="howto-body">' +
+      '<p><b>Why the threshold is not a formula.</b> Every sequence of random numbers has a best split point - try all the places you could cut thirty draws from one distribution and one cut will separate them better than the rest. That is arithmetic, not a finding, and testing the two sides of that cut with a t-test gives a tiny p-value because the cut was chosen to make it small. It is the same mistake as picking the largest of twenty effects and quoting its unadjusted p-value. Measured on 40 points of pure noise: a t-test at the best cut called it a changepoint <b>about 40%</b> of the time (38 to 41% across simulation batches). The p-values above are the share of ' + r.reps + ' shuffles of your own numbers whose best cut beat the real one, so the multiplicity of searching every cut is inside the null rather than corrected afterwards. On the same noise that fired <b>5 to 6%</b> of the time against the 5% it claims.</p>' +
+      '<p><b>The position is uncertain, and that matters more than it sounds.</b> Somebody is going to take a position to a batch record and look for what happened around then. The range in the second column is a bootstrap - the two fitted means held, the residuals resampled, the same search re-run - and it is quoted honestly: measured, it contains the true position <b>83 to 87%</b> of the time rather than the 90% its percentiles imply. Check the whole range in the record, not the single point.</p>' +
+      '<p><b>What to do with it.</b> ' + (found
+        ? 'Compute your limits, your capability and your forecast from the last regime (' + (r.lastRegime.from + 1) + ' to ' + r.lastRegime.to + '), not the whole record. ' +
+          (r.inflation !== null && r.inflation > 1.15
+            ? 'The whole record\u2019s spread is <b>' + r.inflation.toFixed(2) + '\u00d7</b> the last regime\u2019s, because the step lands in it as though it were noise. '
+            : '') +
+          'Then find out what the change WAS. A changepoint is a date, not a cause, and the value of the date is that it is specific enough to check a change record against.'
+        : 'Nothing here says the process is fine - it says a step change big enough to stand out from ' + r.n + ' points of this spread did not happen. A half-sigma step in 40 points is found only about <b>17%</b> of the time, so a real but modest change can sit in a record like this undetected. If you have a reason to believe something changed on a particular date, the question to ask is whether this record could have shown it, and the answer is usually no for anything under about one sigma.') + '</p>' +
+      '<p><b>What this does not cover.</b> Steps in the mean only. A change in the spread with no change in the level is invisible here, and so is a gradual drift - a slow ramp has no single best cut, and forcing one on it gives a position with no meaning. It also assumes the rows are in time order and nothing can check that: a sheet sorted by batch ID or by result is a different series, and this will happily find changepoints in it.</p>' +
+      '</div></details></div>';
+
+    drawChangepoints($('cp-chart'), r, name);
+  }
+
+  function drawChangepoints(el, r, name) {
+    const W = Math.max(320, el.clientWidth || 700), H = 300, L = 58, R = 16, T = 16, B = 44;
+    const y = r.values;
+    const lo = Math.min.apply(null, y), hi = Math.max.apply(null, y);
+    const pad = (hi - lo) * 0.1 || 1;
+    const sx = i => L + (y.length === 1 ? 0.5 : i / (y.length - 1)) * (W - L - R);
+    const sy = v => H - B - (v - (lo - pad)) / ((hi + pad) - (lo - pad)) * (H - T - B);
+    let b = '';
+    for (const t of CH.niceTicks(lo - pad, hi + pad, 4)) if (t >= lo - pad && t <= hi + pad)
+      b += '<line class="gridline" x1="' + L + '" x2="' + (W - R) + '" y1="' + sy(t) + '" y2="' + sy(t) + '"/><text x="' + (L - 6) + '" y="' + (sy(t) + 4) + '" text-anchor="end">' + h(f3(t)) + '</text>';
+    for (const t of CH.niceTicks(1, y.length, 5)) if (t >= 1 && t <= y.length)
+      b += '<text x="' + sx(t - 1) + '" y="' + (H - B + 16) + '" text-anchor="middle">' + t + '</text>';
+    b += '<line class="axis" x1="' + L + '" x2="' + (W - R) + '" y1="' + (H - B) + '" y2="' + (H - B) + '"/>';
+    /* The bootstrap range for each changepoint is drawn as a band, because that is the thing
+       somebody has to take to a change record - a single line implies a precision the
+       measurement does not have. */
+    for (const c of r.changepoints) {
+      if (c.locationLo !== null && c.locationHi > c.locationLo) {
+        b += '<rect class="cp-band" x="' + sx(c.locationLo) + '" y="' + T + '" width="' + Math.max(1, sx(c.locationHi) - sx(c.locationLo)) + '" height="' + (H - T - B) + '"/>';
+      }
+      b += '<line class="cp-line" x1="' + sx(c.index) + '" x2="' + sx(c.index) + '" y1="' + T + '" y2="' + (H - B) + '"/>' +
+        '<text class="cp-label" x="' + sx(c.index) + '" y="' + (T - 4) + '" text-anchor="middle">' + (c.index + 1) + '</text>';
+    }
+    // Each regime's own mean, drawn only across the points it describes.
+    for (const sg of r.segments) {
+      b += '<line class="cl-line" x1="' + sx(sg.from) + '" x2="' + sx(sg.to - 1) + '" y1="' + sy(sg.mean) + '" y2="' + sy(sg.mean) + '"/>';
+    }
+    b += '<path class="line thin" d="' + y.map((v, i) => (i ? 'L' : 'M') + sx(i).toFixed(1) + ' ' + sy(v).toFixed(1)).join('') + '"/>';
+    y.forEach((v, i) => { b += '<g data-tip="' + h('Point ' + (i + 1) + ': ' + f3(v)) + '"><circle class="hit" cx="' + sx(i) + '" cy="' + sy(v) + '" r="9"/><circle class="pt" cx="' + sx(i) + '" cy="' + sy(v) + '" r="3"/></g>'; });
+    b += '<text class="lbl-strong" x="' + ((L + W - R) / 2) + '" y="' + (H - 6) + '" text-anchor="middle">Point in time order</text>' +
+      '<text class="lbl-strong" transform="translate(13 ' + ((T + H - B) / 2) + ') rotate(-90)" text-anchor="middle">' + h(name) + '</text>';
+    el.innerHTML = '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="The series with its changepoints and each regime\u2019s mean">' + b + '</svg>';
+    if (CH.bindTips) CH.bindTips(el);
   }
 
   // ---------- equipment life (Weibull) ----------
@@ -438,16 +557,45 @@
     const vals = table.rows.map(r => E.toNumber(r[i])).filter(v => v !== null);
     const period = $('fc-period').value === '' ? null : Number($('fc-period').value);
     const horizon = $('fc-horizon').value === '' ? 1 : Number($('fc-horizon').value);
+    /* The gap this closes: a forecast fitted to the whole history carries a line change or a
+       raw-material change forward as though it were still in force. So the series is checked
+       for a regime change before the leaderboard is shown, and if one is found it is said
+       first - a MASE that looks respectable across a regime boundary is a method that has
+       learned to average two processes. Fewer shuffles than the dedicated mode uses, because
+       this is a flag rather than the analysis, and the mode is linked for the rest. */
+    let cp = null;
     try {
-      renderForecast(F.backtest(vals, { period, horizon }), vals);
+      /* Same settings as the dedicated mode, so a reader who looks at both is not shown two
+         different ranges for the same changepoint. */
+      if (window.MLChangepoint && vals.length >= 12) cp = window.MLChangepoint.detect(vals, { reps: 2000, locReps: 500, seed: 17 });
+    } catch (e) { cp = null; }
+    try {
+      renderForecast(F.backtest(vals, { period, horizon }), vals, cp);
       $('stab-out').scrollIntoView({ behavior: 'smooth', block: 'start' });
     } catch (e) { fail(e.message); }
   }
 
-  function renderForecast(r, vals) {
+  function renderForecast(r, vals, cp) {
     const f3 = x => (x === null || x === undefined || !isFinite(x) ? '\u2013' : Number(x).toFixed(3));
     const beat = r.beatsBaseline;
-    $('stab-out').innerHTML = '<div class="card"><h3>Backtest: every method scored on forecasts made before the answer was known</h3>' +
+    /* The changepoint that matters to a forecast is the MOST RECENT one, because it is the
+       one that starts the regime you are forecasting from - not the first by position, and not
+       the largest. An earlier version named changepoints[0] and called it "the clearest",
+       which on a two-step series pointed at the weaker, older step and gave the wrong date. */
+    const latest = cp && cp.changepoints.length ? cp.changepoints[cp.changepoints.length - 1] : null;
+    const regimeWarning = (latest && !cp.autocorrelationWarning)
+      ? '<p class="demo-read"><b>Before the leaderboard: this series changed regime.</b> ' +
+        (cp.changepoints.length === 1 ? 'A step was found at point ' : cp.changepoints.length + ' steps were found, the most recent at point ') +
+        (latest.index + 1) + (latest.locationLo === null ? '' : ' (anywhere in ' + (latest.locationLo + 1) + ' to ' + (latest.locationHi + 1) + ')') +
+        ', moving the mean by ' + (latest.shift > 0 ? '+' : '') + f3(latest.shift) + '. ' +
+        'Every method below was fitted to the whole record, so each one is partly describing a process that no longer runs' +
+        (cp.inflation !== null && cp.inflation > 1.15 ? ' - and the whole record\u2019s spread is ' + cp.inflation.toFixed(2) + '\u00d7 the last regime\u2019s, because the step lands in it as though it were noise' : '') +
+        '. The last regime is points ' + (cp.lastRegime.from + 1) + ' to ' + cp.lastRegime.to + ', which is ' + cp.lastRegime.n +
+        ' of the ' + cp.n + ' you loaded. Re-run on that stretch if it is long enough to forecast from, and read the regime mode for what the step cost. ' +
+        '<a class="learn-link" href="learn.html#changepoints" target="_blank" rel="noopener noreferrer">Learn how this works \u2197</a></p>'
+      : '';
+
+    $('stab-out').innerHTML = '<div class="card"><h3>Backtest: every method scored on forecasts made before the answer was known</h3>' + regimeWarning +
       '<div class="table-scroll"><table class="pm"><thead><tr><th>Method</th><th>MASE</th><th>MAE</th><th>RMSE</th><th>Bias</th></tr></thead><tbody>' +
       r.results.map(m => '<tr' + (m.key === r.winner.key ? ' class="hi"' : '') + '><td>' + h(m.name) + (m.baseline ? ' <b>(baseline)</b>' : '') +
         '</td><td>' + f3(m.mase) + '</td><td>' + f3(m.mae) + '</td><td>' + f3(m.rmse) + '</td><td>' + f3(m.bias) + '</td></tr>').join('') +
@@ -479,6 +627,7 @@
     $('stab-data').value = ''; $('stab-out').innerHTML = ''; $('stab-read').textContent = '';
     $('stab-map').hidden = true; $('stab-settings').hidden = true; $('stab-error').hidden = true; $('stab-file').value = '';
     if ($('stab-rel')) $('stab-rel').hidden = true;
+    if ($('stab-cp')) $('stab-cp').hidden = true;
   }
 
   /* An attribute that only falls can never breach an upper limit, so asking for one is
@@ -515,13 +664,18 @@
         $('rel-run').addEventListener('click', runReliability);
         $('rel-cens').addEventListener('change', fillCensValues);
       }
+      if ($('stab-sample5')) {
+        $('stab-sample5').addEventListener('click', () => load(cpExample(false)));
+        $('stab-sample6').addEventListener('click', () => load(cpExample(true)));
+        $('cp-run').addEventListener('click', runChangepoint);
+      }
       showStabMode();
     }
     $('stab-dir').addEventListener('change', showRelevantLimits);
     showRelevantLimits();
   }
 
-  window.MLStab = { clear, example, relExample };
+  window.MLStab = { clear, example, relExample, cpExample };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
 })();

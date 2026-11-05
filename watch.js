@@ -131,6 +131,7 @@
     extrapolation: { search: 'dangers of extrapolation regression outside the data range' },
     conformal: { search: 'conformal prediction distribution-free uncertainty' },
     'forecast-backtest': { search: 'time series cross validation rolling origin MASE baseline' },
+    changepoints: { search: 'changepoint detection permutation test time series structural break' },
     'size-distribution': { search: 'particle size distribution power law log-log cumulative count' },
     'weibull-life': { search: 'Weibull analysis reliability shape parameter censored data explained' },
     'subgroup-charts': { search: 'X-bar and R chart rational subgrouping explained' },

@@ -300,12 +300,15 @@
             <option value="shelf" selected>Shelf life from a stability study (ICH Q1E)</option>
             <option value="forecast">Forecast a trend forward, and backtest it</option>
             <option value="reliability">Equipment life: does preventive replacement help?</option>
+            <option value="changepoint">Did the process change regime, and when?</option>
           </select>
         </label>
         <button class="btn ghost small" id="stab-sample" type="button">Load an example study</button>
         <button class="btn ghost small" id="stab-sample2" type="button">Example: batches that differ</button>
         <button class="btn ghost small" id="stab-sample3" type="button" hidden>Example: seals that wear out</button>
         <button class="btn ghost small" id="stab-sample4" type="button" hidden>Example: failures that look like wear-out but are not</button>
+        <button class="btn ghost small" id="stab-sample5" type="button" hidden>Example: a line change part way through</button>
+        <button class="btn ghost small" id="stab-sample6" type="button" hidden>Example: a series that only wanders</button>
         <button class="btn ghost small" id="stab-clear" type="button">Clear</button>
       </div>
       <label class="full" for="stab-data">Stability data (CSV or tab separated with a header row, or JSON)</label>
@@ -317,6 +320,11 @@
         <label>Cycle length, if the series repeats (optional) <input id="fc-period" type="number" min="2" step="1" placeholder="e.g. 12 for monthly"></label>
         <label>How many periods ahead <input id="fc-horizon" type="number" min="1" step="1" value="3"></label>
         <button class="btn primary" id="fc-run" type="button">Backtest and forecast</button>
+      </div>
+      <div class="controls" id="stab-cp" hidden>
+        <label>Series column, in time order <select id="cp-series"></select></label>
+        <label>Shortest regime worth finding <input id="cp-min" type="number" min="3" step="1" placeholder="auto: a tenth of the record"></label>
+        <button class="btn primary" id="cp-run" type="button">Find the changepoints</button>
       </div>
       <div class="controls" id="stab-rel" hidden>
         <label>Time in service, or time to failure <select id="rel-time"></select></label>
@@ -1325,6 +1333,7 @@
 <script src="stability.js"></script>
 <script src="forecast.js"></script>
 <script src="reliability.js"></script>
+<script src="changepoint.js"></script>
 <script src="codon.js"></script>
 <script src="fold.js"></script>
 <script src="ga.js"></script>

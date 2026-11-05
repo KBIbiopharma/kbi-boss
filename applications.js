@@ -591,7 +591,7 @@
       ],
       gaps: [
         'No live connection to anything: no historian, no SCADA, no LIMS. Export a file and load it.',
-        'No changepoint detection. A forecast here is fitted to the whole history, and nothing segments the series where it changed regime and refits from there, so a line modification or a raw-material change part way through the record is carried forward as if it were still in force. CUSUM will say a shift happened and roughly when; acting on that is still a human decision.',
+        'No detection of a change in SPREAD, or of a gradual drift. The regime search finds steps in the mean only: a process that became more variable at an unchanged average is invisible to it, and a slow ramp has no single best cut, so forcing one on a ramp returns a position with no meaning. CUSUM and EWMA will see a drift starting; neither segments the record for you.',
         'Not a validated GxP system. Everything here is decision support with an audit trail attached.'
       ]
     },
