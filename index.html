@@ -299,10 +299,13 @@
           <select id="stab-mode">
             <option value="shelf" selected>Shelf life from a stability study (ICH Q1E)</option>
             <option value="forecast">Forecast a trend forward, and backtest it</option>
+            <option value="reliability">Equipment life: does preventive replacement help?</option>
           </select>
         </label>
         <button class="btn ghost small" id="stab-sample" type="button">Load an example study</button>
         <button class="btn ghost small" id="stab-sample2" type="button">Example: batches that differ</button>
+        <button class="btn ghost small" id="stab-sample3" type="button" hidden>Example: seals that wear out</button>
+        <button class="btn ghost small" id="stab-sample4" type="button" hidden>Example: failures that look like wear-out but are not</button>
         <button class="btn ghost small" id="stab-clear" type="button">Clear</button>
       </div>
       <label class="full" for="stab-data">Stability data (CSV or tab separated with a header row, or JSON)</label>
@@ -314,6 +317,12 @@
         <label>Cycle length, if the series repeats (optional) <input id="fc-period" type="number" min="2" step="1" placeholder="e.g. 12 for monthly"></label>
         <label>How many periods ahead <input id="fc-horizon" type="number" min="1" step="1" value="3"></label>
         <button class="btn primary" id="fc-run" type="button">Backtest and forecast</button>
+      </div>
+      <div class="controls" id="stab-rel" hidden>
+        <label>Time in service, or time to failure <select id="rel-time"></select></label>
+        <label>Still running at the end of the record? <select id="rel-cens"></select></label>
+        <label>Which value means still running <select id="rel-cens-value"></select></label>
+        <button class="btn primary" id="rel-run" type="button">Fit the life distribution</button>
       </div>
       <div class="controls" id="stab-map" hidden>
         <label>Time column (months)
@@ -1301,6 +1310,7 @@
 <script src="applications.js"></script>
 <script src="stability.js"></script>
 <script src="forecast.js"></script>
+<script src="reliability.js"></script>
 <script src="codon.js"></script>
 <script src="fold.js"></script>
 <script src="ga.js"></script>

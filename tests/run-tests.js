@@ -5344,6 +5344,25 @@ test('the lesson plan is complete, ordered, and covers every method the tool rep
 /* The README quotes the size of the course and four measured figures from its demos. A
    number in a README is a promise to a reader who cannot check it, so each one is checked
    here against the thing it describes. */
+/* The file table in the README is how somebody taking this over finds their way around it,
+   and four modules had been added to the build without ever reaching it - forecast.js,
+   ichq2.js, reliability.js and fold.js - because nothing checked. A table that silently
+   drops new modules is worse than no table: it reads as complete. */
+test('every module the build ships is described in the README file table', () => {
+  const readme = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8');
+  const sh = fs.readFileSync(path.join(ROOT, 'package.sh'), 'utf8');
+  const shipped = (sh.match(/[a-z0-9-]+\.js/g) || []).filter((v, i, a) => a.indexOf(v) === i);
+  assert.ok(shipped.length > 30, 'the shipped file list could not be read from package.sh');
+  const missing = shipped.filter(f => !readme.includes('`' + f + '`'));
+  assert.deepStrictEqual(missing, [],
+    'these modules are shipped but not described in the README file table: ' + missing.join(', '));
+  /* And the other way: a row for a file that no longer exists sends a reader looking for
+     something that is not there. */
+  const rows = [...readme.matchAll(/^\| `([a-z0-9-]+\.js)`/gm)].map(m => m[1]);
+  const gone = rows.filter(f => !fs.existsSync(path.join(ROOT, f)));
+  assert.deepStrictEqual(gone, [], 'the README file table lists files that do not exist: ' + gone.join(', '));
+});
+
 test('the README figures for the academy match the academy', () => {
   const readme = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8');
   const src = fs.readFileSync(path.join(ROOT, 'learn.js'), 'utf8');
@@ -5352,6 +5371,25 @@ test('the README figures for the academy match the academy', () => {
   assert.ok(quoted, 'the README must say how long the course is');
   assert.strictEqual(Number(quoted[1]), count, 'README says ' + quoted[1] + ' lessons; learn.js has ' + count);
   assert.ok(readme.includes(count + ' lessons'), 'the opening line must quote the same count');
+
+  /* The video figures too. These were wrong in the README for several releases - it claimed
+     27 lessons without a video when the real number was 34, because nothing recomputed it
+     when lessons were added. A sentence that counts something has to be checked against the
+     thing it counts, or it quietly stops being true. Verified to bite: changing any of the
+     three numbers below fails this test. */
+  const W = require(path.join(ROOT, 'watch.js'));
+  const entries = Object.entries(W.WATCH);
+  const withVideo = entries.filter(([, v]) => v.watch && v.watch.length);
+  const videos = withVideo.reduce((n, [, v]) => n + v.watch.length, 0);
+  const noVideo = entries.length - withVideo.length;
+  assert.ok(readme.includes(videos + ' verified videos across ' + withVideo.length + ' lessons'),
+    'the README must say "' + videos + ' verified videos across ' + withVideo.length + ' lessons"');
+  assert.ok(readme.includes('other ' + noVideo + ' lessons'),
+    'the README must say the other ' + noVideo + ' lessons have no video, not some stale count');
+  for (const ch of new Set(withVideo.flatMap(([, v]) => v.watch.map(x => x.channel)))) {
+    const short = ch.replace(/ with .*$/, '');
+    assert.ok(readme.includes(short), 'the README names the channels vouched for, and "' + short + '" is missing');
+  }
 
   // The groups the README lists, in the order the lessons actually produce.
   const groups = [];
@@ -5537,7 +5575,7 @@ test('a reader can move through the course one lesson at a time', () => {
 
    Agreement is not truth. This ties each claim to the code instead: if the function that
    would close a gap can be shown to exist, no department may still be told the gap is open.
-   Build one of the four remaining class A items and this test fails until its claim is
+   Build one of the three remaining class A items and this test fails until its claim is
    removed - which is the only way a document like this stays honest without anyone
    remembering to check. */
 test('no gap claims a capability the code already has', () => {
@@ -5556,8 +5594,8 @@ test('no gap claims a capability the code already has', () => {
     { what: 'count charts', claim: /\bno (?:\w+ )*count charts?\b/i, built: () => has(SPC.countChart) },
     { what: 'a Box-Cox path for skewed data', claim: /\bno Box-Cox\b/i, built: () => has(SPC.boxCoxLambda) },
     { what: 'conformal prediction intervals', claim: /\bno (?:\w+ )*conformal\b/i, built: () => has(UNC.conformalQuantile) },
-    // The four class A items still open. Each becomes self-policing the day it is built.
-    { what: 'reliability distributions', claim: /\bno reliability distributions|\bno Weibull fitting/i, built: () => has(SPC.weibull) || has(SPC.hazard) },
+    // The three class A items still open. Each becomes self-policing the day it is built.
+    { what: 'reliability distributions', claim: /\bno reliability distributions|\bno Weibull fitting/i, built: () => fs.existsSync(path.join(ROOT, 'reliability.js')) },
     { what: 'capability across sites in one step', claim: /\bno process capability modelling across sites/i, built: () => has(SPC.crossSite) || has(SPC.acrossSites) },
     { what: 'a size distribution across the bins', claim: /\bno size distribution fitted across the bins/i, built: () => has(SPC.sizeDistribution) || has(SPC.binnedSize) },
     { what: 'the named ICH Q2 calculations', claim: /LOD and LOQ are not implemented|\bno ICH Q2 validation package/i, built: () => fs.existsSync(path.join(ROOT, 'ichq2.js')) },
@@ -6006,4 +6044,74 @@ test('forecasts are scored by rolling origin against a baseline they have to bea
      two and a half cycles is not enough to fit a seasonal pattern worth having. */
   assert.throws(() => F.backtest(E.range(30).map((_, i) => i + (i % 12)), { period: 12 }), /three full cycles/);
   assert.throws(() => F.backtest([1, 2, null, 4]), /not a zero/);
+});
+
+/* Reliability. MTBF work was limited to trends, which cannot answer what maintenance
+   actually asks: is this wearing out, or failing at random? Those have opposite answers -
+   preventive replacement helps the first and is money wasted on the second. */
+test('Weibull fitting handles censoring and refuses to justify maintenance it cannot support', () => {
+  const R = require(path.join(ROOT, 'reliability.js'));
+  const wb = (rand, b, e) => e * Math.pow(-Math.log(Math.max(1e-12, rand())), 1 / b);
+
+  /* The estimator recovers the truth. One sample proves nothing, so this averages 200. */
+  for (const [B, ETA, N, tol] of [[2.5, 1000, 200, 0.08], [1.0, 500, 100, 0.08], [0.7, 300, 100, 0.08]]) {
+    const bs = [];
+    for (let s = 0; s < 200; s++) {
+      const rand = E.rng(1000 + s);
+      const t = E.range(N).map(() => wb(rand, B, ETA));
+      bs.push(R.fit(t, t.map(() => false)).beta);
+    }
+    assert.ok(Math.abs(E.mean(bs) - B) < tol * B, 'shape ' + B + ' at n=' + N + ' should recover, mean was ' + E.mean(bs).toFixed(3));
+  }
+
+  /* Censoring is the one that matters. Units still running are not failures, and treating
+     them as such is the classic MTBF error - it always biases the same way. */
+  const rand = E.rng(13);
+  const raw = E.range(60).map(() => wb(rand, 2.5, 1000));
+  const handled = R.analyze(raw.map(v => ({ time: Math.min(v, 800), censored: v > 800 })));
+  const ignored = R.analyze(raw.map(v => ({ time: Math.min(v, 800) })));
+  assert.ok(handled.censored > 20, 'the test needs real censoring to be a test, got ' + handled.censored);
+  assert.ok(ignored.beta > handled.beta * 1.5,
+    'treating censored units as failures must visibly distort the shape: ' + ignored.beta.toFixed(2) + ' against ' + handled.beta.toFixed(2));
+  assert.ok(ignored.eta < handled.eta, 'and shorten the life: ' + ignored.eta.toFixed(0) + ' against ' + handled.eta.toFixed(0));
+  assert.ok(/carried through the fit as censored rather than dropped/.test(handled.why));
+
+  /* The gate. If the interval on the shape covers 1, wear-out cannot be told from random
+     failure, and no replacement interval can be justified however suggestive the estimate. */
+  const r2 = E.rng(29);
+  const flat = R.analyze(E.range(12).map(() => ({ time: wb(r2, 1.1, 500) })));
+  assert.strictEqual(flat.coversOne, true, 'a shape near 1 on 12 failures should not be separable from random');
+  assert.strictEqual(flat.preventiveReplacementJustified, false);
+  assert.ok(/cannot be justified from it/.test(flat.why), 'and the refusal must be explicit');
+
+  // Infant mortality points the other way, and the advice reverses.
+  const r3 = E.rng(31);
+  const infant = R.analyze(E.range(80).map(() => ({ time: wb(r3, 0.6, 400) })));
+  assert.ok(infant.beta < 1 && !infant.coversOne);
+  assert.strictEqual(infant.preventiveReplacementJustified, false);
+  assert.ok(/commissioning, installation and burn-in, not a replacement schedule/.test(infant.why));
+  assert.ok(/would make things worse/.test(infant.why), 'scheduled replacement on infant mortality is actively harmful');
+
+  /* The fitting method overstates the shape on few failures, towards wear-out - the finding
+     that justifies spending money. The figures quoted to the user are measured here. */
+  const biasAt = N => {
+    const bs = [];
+    for (let s = 0; s < 400; s++) {
+      const rr = E.rng(2000 + s);
+      const t = E.range(N).map(() => wb(rr, 2.0, 1000));
+      bs.push(R.fit(t, t.map(() => false)).beta);
+    }
+    return E.mean(bs) / 2 - 1;
+  };
+  assert.ok(Math.abs(biasAt(8) - 0.21) < 0.05, 'the quoted 21% bias at 8 failures, measured ' + (biasAt(8) * 100).toFixed(0) + '%');
+  assert.ok(Math.abs(biasAt(40) - 0.04) < 0.04, 'and about 4% by 40, measured ' + (biasAt(40) * 100).toFixed(0) + '%');
+  assert.ok(/biased upward by the fitting method itself/.test(flat.why), 'and a small-sample fit must say so');
+
+  // MTBF is never reported without the shape, because people read it as a constant rate.
+  assert.ok(/read as a constant rate, which it only is at a shape of 1/.test(handled.why));
+  // And a poor Weibull fit is reported rather than hidden behind confident formatting.
+  assert.ok(handled.fitCorrelation > 0.9, 'simulated Weibull data should plot straight');
+
+  assert.throws(() => R.analyze(E.range(4).map(() => ({ time: 100 }))), /Only 4 actual failures|Below about five/);
+  assert.throws(() => R.analyze([{ time: 0 }, { time: 1 }, { time: 2 }, { time: 3 }, { time: 4 }, { time: 5 }]), /greater than zero/);
 });

@@ -45,6 +45,7 @@
     $('stab-map').hidden = false;
     if ($('fc-series')) { const numeric = E.profile(table).columns.filter(c => c.kind === 'numeric').map(c => c.name);
       $('fc-series').innerHTML = numeric.map(c => '<option>' + c + '</option>').join(''); }
+    if ($('rel-time')) fillReliability(t);
     if ($('stab-mode')) showStabMode();
     $('stab-settings').hidden = false;
     fillConditions();
@@ -277,6 +278,26 @@
     return lines.join('\n');
   }
 
+  /* Two failure records, drawn from Weibull lifetimes with the record cut off at a fixed age
+     so that some units are genuinely still running. The second one matters more than the
+     first: its point estimate of the shape lands near 1.4, which reads as wear-out, but the
+     interval covers 1 and the tool refuses the replacement interval. That refusal is the
+     thing worth seeing, because a spreadsheet would have printed the 1.4 and stopped. */
+  function relExample(random) {
+    const beta = random ? 1.0 : 2.3, eta = random ? 3000 : 4200;
+    const n = random ? 20 : 26, end = random ? 4000 : 5000;
+    const r = E.rng(random ? 9 : 3);
+    const what = random ? 'Actuator' : 'Seal';
+    const lines = ['Unit,Hours_In_Service,Status'];
+    for (let i = 0; i < n; i++) {
+      const t = eta * Math.pow(-Math.log(1 - r()), 1 / beta);
+      lines.push(t > end
+        ? [what + '-' + String(i + 1).padStart(2, '0'), end, 'still running'].join(',')
+        : [what + '-' + String(i + 1).padStart(2, '0'), Math.round(t), 'failed'].join(','));
+    }
+    return lines.join('\n');
+  }
+
   function run() {
     $('stab-error').hidden = true;
     let rows, opts;
@@ -288,11 +309,120 @@
   }
 
   function showStabMode() {
-    const fc = $('stab-mode').value === 'forecast';
+    const m = $('stab-mode').value, fc = m === 'forecast', rel = m === 'reliability';
     $('stab-fc').hidden = !fc || !table;
-    $('stab-map').hidden = fc || !table;
-    $('stab-settings').hidden = fc || !table;
+    if ($('stab-rel')) $('stab-rel').hidden = !rel || !table;
+    $('stab-map').hidden = fc || rel || !table;
+    $('stab-settings').hidden = fc || rel || !table;
+    /* The example buttons load different shapes of data per mode. A stability study has no
+       failure times in it and a failure record has no batches, so offering the wrong example
+       just produces a confusing refusal. */
+    if ($('stab-sample3')) {
+      $('stab-sample3').hidden = !rel;
+      $('stab-sample4').hidden = !rel;
+      $('stab-sample').hidden = rel;
+      $('stab-sample2').hidden = rel;
+    }
     $('stab-out').innerHTML = ''; $('stab-error').hidden = true;
+  }
+
+  // ---------- equipment life (Weibull) ----------
+  const RELTIME = /hour|cycle|^time|age|life|day|run ?time|service|tbf|mile|batch(es)? ?run/i;
+  const RELCENS = /status|censor|suspend|surviv|still|running|failed?|event|state|outcome/i;
+  const RELRUN = /run|censor|suspend|surviv|alive|^no$|^n$|^0$|in ?service|ongoing|active|right/i;
+
+  function fillReliability(t) {
+    const prof = E.profile(t);
+    const numeric = prof.columns.filter(c => c.kind === 'numeric' || c.kind === 'id').map(c => c.name);
+    const timeCol = t.columns.filter(c => numeric.includes(c)).find(c => RELTIME.test(c)) ||
+      t.columns.filter(c => numeric.includes(c)).pop() || t.columns[0];
+    const censCol = t.columns.filter(c => c !== timeCol).find(c => RELCENS.test(c)) || '';
+    $('rel-time').innerHTML = t.columns.map(c => '<option' + (c === timeCol ? ' selected' : '') + '>' + h(c) + '</option>').join('');
+    $('rel-cens').innerHTML = '<option value="">(none \u2013 every row is a failure)</option>' +
+      t.columns.map(c => '<option' + (c === censCol ? ' selected' : '') + '>' + h(c) + '</option>').join('');
+    fillCensValues();
+  }
+
+  function fillCensValues() {
+    const c = $('rel-cens').value, sel = $('rel-cens-value'), wrap = sel.parentNode;
+    if (!c || !table) { sel.innerHTML = ''; wrap.hidden = true; return; }
+    wrap.hidden = false;
+    const i = table.columns.indexOf(c);
+    const vals = Array.from(new Set(table.rows.map(r => String(r[i]).trim()).filter(v => v !== '')));
+    const guess = vals.find(v => RELRUN.test(v));
+    sel.innerHTML = vals.map(v => '<option' + (v === guess ? ' selected' : '') + '>' + h(v) + '</option>').join('');
+  }
+
+  /* A row is censored when the status column holds the value the user named as "still
+     running". Anything else - including a blank - is read as a failure, which is the
+     conservative direction: miscounting a running unit as failed shortens the life
+     estimate, and shortening it never justifies maintenance that the data does not. */
+  function runReliability() {
+    $('stab-error').hidden = true;
+    const R = window.MLReliability;
+    if (!R) return fail('The reliability module did not load.');
+    if (!table) return fail('Load some data first.');
+    const ti = table.columns.indexOf($('rel-time').value);
+    if (ti < 0) return fail('Pick the column holding the time in service.');
+    const ci = $('rel-cens').value ? table.columns.indexOf($('rel-cens').value) : -1;
+    const runs = $('rel-cens-value').value;
+    const rows = table.rows.map(r => {
+      const t = E.toNumber(r[ti]);
+      if (t === null) return null;
+      return { time: t, censored: ci >= 0 && String(r[ci]).trim() === runs };
+    }).filter(Boolean);
+    try {
+      renderReliability(R.analyze(rows), ci >= 0);
+      $('stab-out').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (e) { fail(e.message); }
+  }
+
+  function renderReliability(r, hadCensorColumn) {
+    const unit = $('rel-time').value;
+    const t4 = v => (isFinite(v) ? Number(v).toPrecision(4) : '\u2013');
+    const verdict = r.coversOne
+      ? { k: 'Cannot be told apart from random', s: 'a replacement interval is not supported' }
+      : r.beta > 1
+        ? { k: 'Wearing out', s: 'a replacement interval is supported' }
+        : { k: 'Infant mortality', s: 'replacing on a schedule would make it worse' };
+
+    $('stab-out').innerHTML = '<div class="card"><h3>Equipment life: what the failure pattern licenses you to do</h3>' +
+      '<div class="tiles">' +
+      '<div class="tile hero-tile"><div class="lbl">Failure pattern</div><div class="val">' + h(verdict.k) + '</div><div class="sub">' + h(verdict.s) + '</div></div>' +
+      '<div class="tile"><div class="lbl">Shape (&beta;)</div><div class="val">' + f2(r.beta) + '</div><div class="sub">95% interval ' + f2(r.betaCi[0]) + ' to ' + f2(r.betaCi[1]) + '</div></div>' +
+      '<div class="tile"><div class="lbl">Characteristic life (&eta;)</div><div class="val">' + t4(r.eta) + '</div><div class="sub">63% have failed by here</div></div>' +
+      '<div class="tile"><div class="lbl">B10 life</div><div class="val">' + t4(r.b10) + '</div><div class="sub">one in ten has failed' +
+        (r.preventiveReplacementJustified ? '' : ' \u2013 not an interval here') + '</div></div>' +
+      '<div class="tile"><div class="lbl">Mean life</div><div class="val">' + t4(r.mtbf) + '</div><div class="sub">read it with &beta; = ' + f2(r.beta) + ', not alone</div></div>' +
+      '<div class="tile"><div class="lbl">Records used</div><div class="val">' + r.failures + '</div><div class="sub">failures' + (r.censored ? ', plus ' + r.censored + ' still running' : ', none still running') + '</div></div>' +
+      '</div>' +
+      (r.fitCorrelation === null ? '' : '<p class="demo-read"><b>Weibull probability plot correlates at ' + f3(r.fitCorrelation) + '.</b> ' +
+        (r.fitCorrelation < 0.95
+          ? 'That is poor. The Weibull may be the wrong description of this equipment, and every number above rests on it \u2013 treat them as indicative and look at the times themselves before acting.'
+          : 'That is consistent with a Weibull being a reasonable description of this equipment.') + '</p>') +
+      '<p class="why">' + h(r.why) + '</p>' +
+      '<div id="rel-surv" class="chart"></div>' +
+      '<div id="rel-haz" class="chart"></div>' +
+      '<details class="howto" open><summary>How to read this, and what to do about it</summary><div class="howto-body">' +
+      '<p><b>The shape &beta; is the whole question.</b> It says which way the failure rate is moving with age, and the three answers call for three different, non-overlapping actions. Below 1, failures get <i>less</i> frequent as a unit ages: that is infant mortality, and it is a commissioning, installation or burn-in problem. At 1, the rate is flat \u2013 the thing fails at random, age tells you nothing, and preventive replacement buys nothing while still costing the labour and the fresh installation risk. Above 1, failures get more frequent with age, and replacing before the age where the rate climbs genuinely removes failures.</p>' +
+      '<p><b>Why the interval decides it and not the point estimate.</b> This read ' + f2(r.beta) + ', but the 95% interval runs ' + f2(r.betaCi[0]) + ' to ' + f2(r.betaCi[1]) + '. ' +
+      (r.coversOne
+        ? 'That interval covers 1, so a flat failure rate is still a live explanation of this data. Scheduling replacements on this basis would be spending maintenance money on a pattern that has not been shown to exist. The fix is more failures, not a bolder reading of the ones you have.'
+        : 'The whole interval sits ' + (r.beta > 1 ? 'above' : 'below') + ' 1, so the direction is established, not just suggested.') + '</p>' +
+      (!r.smallSample ? '' : '<p><b>Small-sample warning, measured not quoted.</b> With ' + r.failures + ' failures the fitting method itself overstates &beta;. Simulated at a true shape of 2.0, the estimate runs about <b>21% high at 8 failures</b>, 13% at 12, 8% at 20 and 4% at 40. That bias points towards wear-out \u2013 the finding that justifies spending money \u2013 so a shape only a little above 1 on this many failures is not yet evidence.</p>') +
+      '<p><b>Censoring.</b> ' + (hadCensorColumn
+        ? 'Units still running when the record ended were carried through the fit as censored \u2013 they contribute what is known (they lasted at least that long) without pretending to be failures. ' + (r.censored ? 'There were ' + r.censored + ' of them here. ' : 'There were none in this data. ')
+        : 'No status column was given, so every row was read as a failure. ') +
+      'If running units are dropped, or their age entered as a failure time, the life estimate comes out short and the shape comes out high \u2013 both in the direction that wrongly recommends preventive replacement.</p>' +
+      '<p><b>What to do with the numbers.</b> If the pattern is wear-out, B10 (' + t4(r.b10) + ') is the usual starting point for a replacement interval, because it is the age by which one unit in ten has already failed. Then weigh the cost of a planned replacement against the cost of a failure in service: the cheaper the failure, the longer you let it run. If the pattern is infant mortality, nothing here is a schedule \u2013 it is a signal to look at how the unit is installed and commissioned. If the pattern cannot be told apart from random, run to failure and keep the spare on the shelf.</p>' +
+      '<p><b>What this does not cover.</b> One failure mode at a time. A pump that fails from seal wear <i>and</i> from random bearing debris mixes two shapes into one, and the fit will land somewhere between them and describe neither \u2013 split the record by failure mode first. The model also assumes each unit is in the same duty: mixing a hard-run line with a standby unit mixes two lifetimes. And the mean life is a mean, not a safe operating age; at &beta; = ' + f2(r.beta) + ' about ' + Math.round(100 * (1 - r.reliabilityAt(r.mtbf))) + '% have already failed by the mean.</p>' +
+      '</div></details></div>';
+
+    const ticks = CH.niceTicks(0, r.curve[r.curve.length - 1].t, 5);
+    CH.lines($('rel-surv'), [{ name: 'Still running', points: r.curve.map(p => ({ x: p.t, y: p.reliability, tip: 'By ' + t4(p.t) + ': ' + Math.round(p.reliability * 100) + '% still running' })) }],
+      { noDots: true, xTicks: ticks, xLabel: unit, yLabel: 'Fraction still running', yDomain: [0, 1], label: 'Survival curve' });
+    CH.lines($('rel-haz'), [{ name: 'Failure rate', points: r.curve.map(p => ({ x: p.t, y: p.hazard, tip: 'At ' + t4(p.t) + ': failure rate ' + p.hazard.toPrecision(3) })) }],
+      { noDots: true, xTicks: ticks, xLabel: unit, yLabel: 'Failure rate at that age', label: 'Hazard curve' });
   }
 
   /* The series is one numeric column in time order. Rows are taken as given: a series whose
@@ -348,6 +478,7 @@
     table = null; last = null; window.MLStabilityRun = null;
     $('stab-data').value = ''; $('stab-out').innerHTML = ''; $('stab-read').textContent = '';
     $('stab-map').hidden = true; $('stab-settings').hidden = true; $('stab-error').hidden = true; $('stab-file').value = '';
+    if ($('stab-rel')) $('stab-rel').hidden = true;
   }
 
   /* An attribute that only falls can never breach an upper limit, so asking for one is
@@ -378,13 +509,19 @@
     if ($('stab-mode')) {
       $('stab-mode').addEventListener('change', showStabMode);
       $('fc-run').addEventListener('click', runForecast);
+      if ($('stab-sample3')) {
+        $('stab-sample3').addEventListener('click', () => load(relExample(false)));
+        $('stab-sample4').addEventListener('click', () => load(relExample(true)));
+        $('rel-run').addEventListener('click', runReliability);
+        $('rel-cens').addEventListener('change', fillCensValues);
+      }
       showStabMode();
     }
     $('stab-dir').addEventListener('change', showRelevantLimits);
     showRelevantLimits();
   }
 
-  window.MLStab = { clear, example };
+  window.MLStab = { clear, example, relExample };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
 })();

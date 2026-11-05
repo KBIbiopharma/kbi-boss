@@ -709,7 +709,7 @@
       ],
       gaps: [
         'No connection to a historian, BMS or SCADA. Export a file and load it; nothing here reads a live tag.',
-        'No reliability distributions: no Weibull fitting, no hazard rate, no survival model, so MTBF work is limited to trends and comparisons.',
+        'No repairable-system model. The Weibull fit treats each row as one unit’s life, which is right for seals, filters and bearings but not for a chiller that has been repaired six times: there the question is whether the gaps between failures are shrinking, which is a point process (power-law NHPP) and is not fitted here. Feed repeated failures of one system in as separate lives and the shape describes a mixture of units that do not exist. A chart of the gaps between events will tell you the rate moved; it will not give you a growth or deterioration parameter.',
         'No qualification or commissioning logic: it will not tell you whether a system is in a qualified state.'
       ]
     },

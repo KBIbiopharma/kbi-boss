@@ -7,6 +7,7 @@
   const S = window.MLSpc, V = window.MLVariance, TL = window.MLTolerance, U = window.MLUncertainty;
   const Q2 = window.MLIchQ2;
   const FC = window.MLForecast;
+  const RL = window.MLReliability;
   const W = window.MLWatch;
   const h = C.esc, fmt = A.fmt, pct = A.pct;
   const range = E.range;
@@ -2536,6 +2537,83 @@
     watch: 'A forecast assumes the future behaves like the past. A line modification, a new raw-material supplier or a process change breaks that, and no amount of backtesting on the old regime will warn you. And MASE is scaled by the one-step baseline error, so at longer horizons figures above 1 are normal - the comparison against the baseline row is what decides it.',
     where: 'The trends bench: pick the forecast mode, give it the series column, a cycle length if it repeats, and how far ahead. The leaderboard is the backtest, not the fit.',
     quiz: { q: 'A vendor shows you a forecasting model with R² of 0.94 on your historical data. What should you ask for?', options: ['The confidence intervals', 'Its MASE against a naive baseline, scored by rolling origin on data it never saw', 'A larger training set'], answer: 1, why: 'R² on fitted history measures how well it described the past, which any flexible method can do perfectly. The only number that matters is how it did on points it had not seen, against the dullest forecast available. If it cannot beat "carry the last value forward" on your own series, it has earned nothing - and you can run that comparison yourself in this tool before anyone signs anything.' }
+  });
+
+
+  add({
+    id: 'weibull-life', group: 'Six Sigma and process control', title: 'Equipment life: is it wearing out, or just unlucky?',
+    analogy: 'Light bulbs and lottery tickets both fail, and the right response is opposite. A bulb that has been on for 900 hours is closer to the end than a fresh one, so replacing it early helps. A lottery ticket that has lost nine times is no more likely to lose the tenth, so swapping it for a new one achieves nothing. Most maintenance schedules are built on the assumption that equipment is a bulb. A lot of it is a ticket.',
+    intro: 'The question maintenance actually asks is not "how long does this last" but "does its failure rate climb with age". One number answers that: the Weibull shape, beta. Below 1 the rate falls with age - infant mortality, an installation problem. At 1 the rate is flat - failures at random, and preventive replacement buys nothing while still costing labour and a fresh installation risk. Above 1 the rate climbs with age, and replacing before it climbs genuinely removes failures. The trap is that beta is estimated from a handful of failures, so a point estimate alone is not an answer.',
+    demo(el) {
+      const CASES = [['wear', 'Seals that wear out'], ['random', 'Looks like wear-out, is not'], ['censor', 'The units still running']];
+      el.innerHTML = '<div class="demo-controls">' + CASES.map((c, i) => btn(c[0], c[1], i ? 'ghost' : 'primary')).join('') + '</div>' +
+        '<div data-role="chart"></div><div data-role="bars"></div><p class="demo-read" data-role="read"></p>';
+      const gen = (seed, beta, eta, n, end) => {
+        const rand = E.rng(seed), rows = [];
+        for (let i = 0; i < n; i++) {
+          const t = eta * Math.pow(-Math.log(1 - rand()), 1 / beta);
+          rows.push(t > end ? { time: end, censored: true } : { time: t, censored: false });
+        }
+        return rows;
+      };
+      const curveOf = (r, label) => {
+        const f = frame(640, 210, [0, r.curve[r.curve.length - 1].t], [0, 1], { l: 52, b: 36, xLabel: 'Hours in service', yLabel: 'Fraction still running' });
+        return svg(640, 210, label, f.axes +
+          '<path class="ref" d="' + pathOf([[0, 0.9], [r.curve[r.curve.length - 1].t, 0.9]], f) + '"/>' +
+          '<path class="line" d="' + pathOf(r.curve.map(p => [p.t, p.reliability]), f) + '"/>' +
+          dot(f.sx(r.b10), f.sy(0.9), 'c2', 4.5, 'B10: one in ten has failed by ' + Math.round(r.b10) + ' hours'));
+      };
+      const show = which => {
+        el.querySelectorAll('.demo-controls .btn').forEach(b => { b.className = 'btn ' + (b.getAttribute('data-role') === which ? 'primary' : 'ghost'); });
+        q(el, 'bars').innerHTML = ''; q(el, 'chart').innerHTML = '';
+        if (which === 'censor') {
+          /* The same 26 records, read three ways. Only the first is correct; the other two are
+             what a spreadsheet does with a unit that has not failed yet. */
+          const rows = gen(3, 2.3, 4200, 26, 5000);
+          const kept = RL.analyze(rows);
+          const dropped = RL.analyze(rows.filter(x => !x.censored));
+          const asFailed = RL.analyze(rows.map(x => ({ time: x.time, censored: false })));
+          C.hbar(q(el, 'bars'), [
+            { label: 'Carried as censored (correct)', value: kept.mtbf, cls: 'hi', text: Math.round(kept.mtbf) + ' h, shape ' + kept.beta.toFixed(2) },
+            { label: 'Still-running units deleted', value: dropped.mtbf, cls: '', text: Math.round(dropped.mtbf) + ' h, shape ' + dropped.beta.toFixed(2) },
+            { label: 'Their age entered as a failure', value: asFailed.mtbf, cls: '', text: Math.round(asFailed.mtbf) + ' h, shape ' + asFailed.beta.toFixed(2) }
+          ], { min: 0, max: kept.mtbf * 1.25, label: 'Mean life under three ways of handling the four units still running' });
+          q(el, 'read').innerHTML = 'Twenty-six seals, four of which were still running when the record closed at 5,000 hours. Handled properly they contribute what is actually known - that they lasted <i>at least</i> 5,000 hours - and the mean life comes out at <b>' +
+            Math.round(kept.mtbf) + ' hours</b> with a shape of <b>' + kept.beta.toFixed(2) + '</b>. Delete those four rows, which is what happens when somebody filters to "failures only", and the mean life drops to <b>' +
+            Math.round(dropped.mtbf) + ' hours</b> and the shape rises to <b>' + dropped.beta.toFixed(2) + '</b>. Enter their current age as a failure time instead and you get <b>' +
+            Math.round(asFailed.mtbf) + ' hours</b> at <b>' + asFailed.beta.toFixed(2) + '</b>. Notice the direction of both errors: a <b>shorter</b> life and a <b>higher</b> shape. Shorter life means an earlier replacement interval, and higher shape means more confident wear-out. Both mistakes argue for spending money, which is why they rarely get caught.';
+          return;
+        }
+        const r = which === 'wear' ? RL.analyze(gen(3, 2.3, 4200, 26, 5000)) : RL.analyze(gen(9, 1.0, 3000, 20, 4000));
+        q(el, 'chart').innerHTML = curveOf(r, 'Survival curve');
+        C.hbar(q(el, 'bars'), [
+          { label: 'Lower end of the 95% interval', value: r.betaCi[0], cls: '' },
+          { label: 'Shape estimated from this data', value: r.beta, cls: 'hi' },
+          { label: 'Upper end of the 95% interval', value: r.betaCi[1], cls: '' }
+        ], { min: 0, max: Math.max(2.2, r.betaCi[1] * 1.15), ref: { value: 1, label: 'random failure' }, label: 'The Weibull shape and its interval, against 1' });
+        q(el, 'read').innerHTML = which === 'wear'
+          ? 'Shape <b>' + r.beta.toFixed(2) + '</b>, interval <b>' + r.betaCi[0].toFixed(2) + ' to ' + r.betaCi[1].toFixed(2) +
+            '</b>. The whole interval sits above 1, so the failure rate genuinely climbs with age and this is the case where preventive replacement works. B10 - the age by which one seal in ten has failed, marked on the curve at <b>' +
+            Math.round(r.b10) + ' hours</b> - is the usual starting point for the interval, which you then trade off against the cost of a failure in service. Note that the mean life of <b>' +
+            Math.round(r.mtbf) + ' hours</b> is no use as an operating age: by then <b>' + Math.round(100 * (1 - r.reliabilityAt(r.mtbf))) + '%</b> have already failed.'
+          : 'Shape <b>' + r.beta.toFixed(2) + '</b>, which reads like wear-out and would be written up as wear-out by almost anybody. But the interval runs <b>' +
+            r.betaCi[0].toFixed(2) + ' to ' + r.betaCi[1].toFixed(2) + '</b>, and it covers 1 - so a flat, age-independent failure rate is still a perfectly good explanation of these ' +
+            r.failures + ' failures. This data was in fact generated at a true shape of exactly 1.0: random. <b>The tool refuses to recommend a replacement interval here</b>, and that refusal is the whole point of the lesson: the point estimate is not the finding, the interval is. Two things fix it, and neither is a bolder reading - more failures, or splitting the record by failure mode so one shape is not describing two mechanisms.';
+      };
+      CASES.forEach(c => { q(el, c[0]).onclick = () => show(c[0]); });
+      show('wear');
+    },
+    steps: [
+      'Collect one row per unit: its time in service, and whether it has failed yet. Hours, cycles, batches, days - any consistent measure of use.',
+      'Mark the units that have NOT failed. They are censored, not missing: they tell you a life was at least that long, and dropping them shortens every figure that follows.',
+      'Read the shape and its interval, not the shape alone. If the interval covers 1, the data cannot tell wear-out from random failure and no schedule follows from it.',
+      'Only if the whole interval sits above 1, set the interval from B10 and weigh a planned replacement against a failure in service.',
+      'Split the record by failure mode first. One shape cannot describe a seal that wears and a bearing that fails at random; the fit will land between them and describe neither.'
+    ],
+    when: 'Pump seals, filters, bearings, valve actuators, HEPA filters, probes - anything replaced on a schedule where somebody has asked whether the schedule is earning its cost. Also the other way round: an item being run to failure where you suspect it should not be.',
+    watch: 'Three traps, in order of how often they bite. First, the mean time between failures on its own: it is a mean, and at any shape above 1 roughly half the units have already failed by it, so it is not a safe operating age. Second, small samples - the fitting method overstates the shape when failures are few. Measured on simulated data at a true shape of 2.0, the estimate runs about 21% high at 8 failures, 13% at 12, 8% at 20 and 4% at 40; the bias points towards wear-out, the finding that justifies spending, so a shape just above 1 on a dozen failures is not yet evidence. Third, a repairable system: one chiller repaired six times is not six chillers, and feeding those six intervals in as separate lives fits a shape to a mixture of units that do not exist. For that, the question is whether the gaps between failures are shrinking - which is a different model, and is not in this tool.',
+    where: 'The trends bench, third mode: pick "Equipment life", point it at the time column and the status column, and say which value means still running. Both examples from this lesson are on the buttons there.',
+    quiz: { q: 'Fourteen pump failures over two years. The fit gives a Weibull shape of 1.6 with a 95% interval of 0.9 to 2.3, and maintenance wants a 6-month replacement schedule costed from it. What do you tell them?', options: ['Go ahead: 1.6 is clearly above 1, so the pumps are wearing out', 'The data cannot yet distinguish wear-out from random failure, so a schedule is not supported - and on 14 failures the 1.6 is itself biased high', 'Use the mean time between failures as the replacement interval instead'], answer: 1, why: 'The interval covers 1, so a flat failure rate is still a live explanation and a schedule built on these numbers would be spending money on a pattern not yet shown to exist. Worse, at 14 failures the estimate is biased upward by roughly 10-15% by the fitting method alone, and that bias points towards exactly the conclusion being asked for. The honest answer is that the record is not yet long enough - keep collecting, and check whether the failures are really one mode or several. The third option is the most common mistake in the field: at a shape of 1.6 about half the pumps have already failed by the mean, so scheduling on it means half the fleet fails first.' }
   });
 
   add({
