@@ -6095,7 +6095,7 @@ test('a reader can move through the course one lesson at a time', () => {
 
    Agreement is not truth. This ties each claim to the code instead: if the function that
    would close a gap can be shown to exist, no department may still be told the gap is open.
-   Build the last remaining class A item and this test fails until its claim is
+   Build a class A item and this test fails until its claim is
    removed - which is the only way a document like this stays honest without anyone
    remembering to check. */
 test('no gap claims a capability the code already has', () => {
@@ -6114,13 +6114,15 @@ test('no gap claims a capability the code already has', () => {
     { what: 'count charts', claim: /\bno (?:\w+ )*count charts?\b/i, built: () => has(SPC.countChart) },
     { what: 'a Box-Cox path for skewed data', claim: /\bno Box-Cox\b/i, built: () => has(SPC.boxCoxLambda) },
     { what: 'conformal prediction intervals', claim: /\bno (?:\w+ )*conformal\b/i, built: () => has(UNC.conformalQuantile) },
-    // The one class A item still open. It becomes self-policing the day it is built.
+    /* Every class A item from the original evaluation is now built, so every entry above is
+       live rather than waiting. A new one takes its place here the day it is named. */
     { what: 'reliability distributions', claim: /\bno reliability distributions|\bno Weibull fitting/i, built: () => fs.existsSync(path.join(ROOT, 'reliability.js')) },
     { what: 'capability across sites in one step', claim: /\bno process capability modelling across sites/i, built: () => has(SPC.crossSite) || has(SPC.acrossSites) },
     { what: 'a size distribution across the bins', claim: /\bno size distribution fitted across the bins/i, built: () => fs.existsSync(path.join(ROOT, 'particles.js')) },
     { what: 'the named ICH Q2 calculations', claim: /LOD and LOQ are not implemented|\bno ICH Q2 validation package/i, built: () => fs.existsSync(path.join(ROOT, 'ichq2.js')) },
     { what: 'forecasting a trend forward', claim: /\bno forecast of a trend forward/i, built: () => fs.existsSync(path.join(ROOT, 'forecast.js')) },
-    { what: 'changepoint detection', claim: /\bno changepoint detection/i, built: () => fs.existsSync(path.join(ROOT, 'changepoint.js')) }
+    { what: 'changepoint detection', claim: /\bno changepoint detection/i, built: () => fs.existsSync(path.join(ROOT, 'changepoint.js')) },
+    { what: 'multi-attribute comparability', claim: /\bno multi-attribute comparability/i, built: () => fs.existsSync(path.join(ROOT, 'comparability.js')) }
   ];
 
   for (const c of CLOSERS) {

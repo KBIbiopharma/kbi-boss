@@ -564,7 +564,7 @@
       ],
       gaps: [
         'No automated PPQ or stage-2 continued-verification report format.',
-        'No multi-attribute comparability in one step. Sites are compared one attribute at a time, so a transfer covering a dozen quality attributes is a dozen separate runs with nothing joining them into a verdict. Requiring every attribute to pass also makes the combined claim far harder than any single one - twelve attributes each powered at 80% give about a 7% chance of all passing - and the per-attribute sample size does not account for that.',
+        'No sizing for more than two sites at once. A transfer to three or four receiving sites is a different claim from three separate pairwise ones – requiring every site to match the origin on every attribute multiplies the same power problem again – and the tool compares two at a time, says so, and refuses to pool three into one verdict rather than producing a number for a claim nobody made.',
         'Nothing here reads a batch record. Every input is a table somebody has already assembled.'
       ]
     },

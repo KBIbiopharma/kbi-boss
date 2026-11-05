@@ -10,6 +10,7 @@
   const RL = window.MLReliability;
   const PD = window.MLParticles;
   const CP = window.MLChangepoint;
+  const CB = window.MLComparability;
   const W = window.MLWatch;
   const h = C.esc, fmt = A.fmt, pct = A.pct;
   const range = E.range;
@@ -2543,6 +2544,81 @@
 
 
 
+
+
+  add({
+    id: 'multi-attribute', group: 'Six Sigma and process control', title: 'A dozen things must all pass: two surprises',
+    analogy: 'A relay team of twelve. To win, every runner must beat their opponent - so the team is exactly as fast as its slowest leg, and knowing all twelve individual times tells you nothing until you ask which one loses. Now the part people get wrong: if each runner wins 80% of the time, the team does not win 80% of the time. It wins far less. But if they all train together and have good and bad days together, it wins rather more than the arithmetic of independence suggests.',
+    intro: 'A site transfer covers every quality attribute that matters, and the usual approach is a separate equivalence test for each. That gives a dozen verdicts and no answer. Joining them changes two things, in opposite directions, and both are routinely got backwards: one of them is free money people leave on the table, and the other is a study that was never going to work.',
+    demo(el) {
+      const CASES = [['free', 'The correction you must not apply'], ['cost', 'Where the real cost is'], ['corr', 'Why correlation is good news']];
+      el.innerHTML = '<div class="demo-controls">' + CASES.map((c, i) => btn(c[0], c[1], i ? 'ghost' : 'primary')).join('') + '</div>' +
+        '<div data-role="bars"></div><p class="demo-read" data-role="read"></p>';
+      const equi = (k, rho) => range(k).map(i => range(k).map(j => (i === j ? 1 : rho)));
+      /* Every attribute sitting exactly on its margin is the worst case for a false pass, so
+         it is the case the type I error claim has to survive. */
+      const falsePass = (k, rho) => CB.combinedPower(range(k).map(() => ({ sd: 1, margin: 1, assumedDiff: 1 })), equi(k, rho), 20, { alpha: 0.05, reps: 2500, seed: 41 });
+      // And a margin of 0.9424 sigma at 20 per side is exactly 80% power for one attribute.
+      const power = (k, rho) => CB.combinedPower(range(k).map(() => ({ sd: 1, margin: 0.9424, assumedDiff: 0 })), equi(k, rho), 20, { alpha: 0.05, reps: 2500, seed: 11 });
+
+      const show = which => {
+        el.querySelectorAll('.demo-controls .btn').forEach(b => { b.className = 'btn ' + (b.getAttribute('data-role') === which ? 'primary' : 'ghost'); });
+
+        if (which === 'free') {
+          const ks = [1, 3, 6, 12, 20];
+          const got = ks.map(k => falsePass(k, 0.9));
+          C.hbar(q(el, 'bars'), ks.map((k, i) => ({
+            label: k + ' attribute' + (k === 1 ? '' : 's'), value: 100 * got[i],
+            cls: i === 0 ? 'hi' : '', text: (100 * got[i]).toFixed(1) + '%  (Bonferroni would demand ' + (5 / k).toFixed(2) + '%)'
+          })), { min: 0, max: 6, ref: { value: 5, label: '5% claimed' }, label: 'How often the whole transfer wrongly passes, every attribute sitting exactly on its margin' });
+          q(el, 'read').innerHTML = '<b>Twelve tests, and no correction.</b> That feels wrong, and it is right. To wrongly declare the sites comparable you would have to wrongly pass <i>every single attribute</i> - so the chance of a false overall pass is at most the chance for one, which is the ' +
+            '5% each test already claims. This is an intersection-union test, and it is the mirror image of the usual multiplicity problem: there, you win if ANY test fires, so more tests means more false alarms. Here you win only if ALL of them pass, so more tests makes a false pass <i>harder</i>.' +
+            '<br><br>Look at the direction on the bars. The false-pass rate does not creep up as attributes are added, it <b>falls</b> - to about <b>' + (100 * got[3]).toFixed(1) +
+            '%</b> at twelve attributes, against the <b>' + (5 / 12).toFixed(2) + '%</b> a Bonferroni split would hold you to. So the reflex is not merely unnecessary here, it is conservative on top of something already conservative, and every batch it costs is a batch nobody needed to make. If somebody asks you to divide alpha across your CQAs, this chart is the answer.';
+          return;
+        }
+
+        if (which === 'cost') {
+          const ks = [1, 3, 6, 12];
+          const got = ks.map(k => power(k, 0));
+          C.hbar(q(el, 'bars'), ks.map((k, i) => ({
+            label: 'all ' + ks[i] + ' must pass', value: 100 * got[i],
+            cls: i === ks.length - 1 ? 'bad' : '', text: (100 * got[i]).toFixed(0) + '%'
+          })), { min: 0, max: 100, ref: { value: 80, label: '80% for one' }, label: 'Chance the whole transfer passes, each attribute independently powered at 80%' });
+          q(el, 'read').innerHTML = 'Here is the bill for the free lunch. Each of these attributes passes on its own <b>80%</b> of the time - a perfectly respectable study by any per-attribute calculation. Three of them together: <b>' +
+            (100 * got[1]).toFixed(0) + '%</b>. Six: <b>' + (100 * got[2]).toFixed(0) + '%</b>. Twelve: <b>' + (100 * got[3]).toFixed(0) +
+            '%</b>, which is 0.8 multiplied by itself twelve times. You would book the batches, run the study, and have roughly a one-in-fourteen chance of the transfer passing even if the two sites were genuinely identical.' +
+            '<br><br>This is the number that is missing from almost every transfer protocol, because the sample size was calculated attribute by attribute and nothing joined them. And note which way the error runs: the per-attribute calculation always says the study is <i>big enough</i>. Nobody discovers otherwise until the data is in and an attribute has failed, at which point the argument is about that attribute rather than about the design.';
+          return;
+        }
+
+        const RHO = [0, 0.3, 0.6, 0.9];
+        const got = RHO.map(r => power(12, r));
+        C.hbar(q(el, 'bars'), RHO.map((r, i) => ({
+          label: 'correlation ' + r.toFixed(1) + (r === 0 ? ' (independent)' : ''), value: 100 * got[i],
+          cls: i === 0 ? 'bad' : i === RHO.length - 1 ? 'hi' : '', text: (100 * got[i]).toFixed(0) + '%'
+        })), { min: 0, max: 100, ref: { value: 80, label: '80% for one' }, label: 'Twelve attributes, each powered at 80%: chance all twelve pass, by how correlated they are' });
+        q(el, 'read').innerHTML = 'The 0.8<sup>12</sup> figure assumes the attributes are <b>independent</b>, and they are not. They are measured on the same batches, so they share batch-level variation: a batch that runs a little high runs a little high on several attributes at once. That means they tend to pass or fail <i>together</i> - and for a claim that needs all of them, togetherness is exactly what you want.' +
+          '<br><br>Measured: twelve attributes at 80% each reach <b>' + (100 * got[0]).toFixed(0) + '%</b> if independent, <b>' + (100 * got[1]).toFixed(0) +
+          '%</b> at a correlation of 0.3, <b>' + (100 * got[2]).toFixed(0) + '%</b> at 0.6, and <b>' + (100 * got[3]).toFixed(0) +
+          '%</b> at 0.9. So the pessimistic number is wrong by a factor of several, and the optimistic number - "each one is at 80%, so we are fine" - is wrong by a factor of several in the other direction. Both of the figures people reach for are wrong, which is the whole reason this is worth computing rather than assuming.' +
+          '<br><br>And it is computable: the correlation is a property of your own attributes, and it can be measured from the same data. Where the same batches were run at both sites, the per-batch differences for each attribute are correlated directly. The tool recovers a known correlation of 0.3 as 0.31, 0.6 as 0.60 and 0.9 as 0.90, so the figure it gives you is measured rather than borrowed.';
+      };
+      CASES.forEach(c => { q(el, c[0]).onclick = () => show(c[0]); });
+      show('free');
+    },
+    steps: [
+      'Declare a margin for every attribute before the study, in that attribute’s own units. One margin across a dozen attributes is meaningless: 2.5% is generous on a purity of 98% and a seventh of the noise on an aggregate of 1.1%.',
+      'Do NOT split alpha across the attributes. Requiring all of them to pass already controls the false-pass rate, and correcting it again costs batches for nothing.',
+      'Compute the chance that ALL of them pass, not each one separately. That is the study’s real power and it is the number a per-attribute calculation hides.',
+      'Measure the correlation between the attributes rather than assuming independence. Independence is the pessimistic end, and real attributes on shared batches do better.',
+      'Size for the combined claim, and take that number to whoever books the batches. Then watch the binding attribute - the whole transfer is exactly as strong as its weakest member.'
+    ],
+    when: 'Site transfers, scale changes, a new contract manufacturer, a process change needing comparability, a bridging study - anywhere a decision rests on several attributes all being acceptable at once rather than on any single one.',
+    watch: 'The margins are a judgement and must come first: a margin chosen after seeing the data is not a test, and the tool refuses to invent one. Two sites at a time - three receiving sites at once is a different claim that multiplies the same problem again. And the combined power is what says whether a pass meant anything: failing to find a difference is never evidence of sameness, which is the reason this is an equivalence test and not a t-test.',
+    where: 'The equivalence bench, second mode: give it the attribute column, the site column, the result, and a margin per attribute. Three example transfers are on the buttons there, including one where eleven attributes pass and the twelfth fails.',
+    quiz: { q: 'A transfer protocol lists twelve CQAs, each sized for 80% power, and QA asks you to Bonferroni-correct the twelve equivalence tests to protect against multiplicity. What do you tell them?', options: ['Agree: twelve tests need a correction, so each should be tested at 0.05/12', 'No correction is needed, because every attribute must pass for the transfer to pass - but raise the opposite problem, that twelve attributes at 80% each give roughly a 7% chance of the whole transfer passing if they are independent', 'Agree to correct, and increase the sample size to compensate'], answer: 1, why: 'Multiplicity corrections protect you when you win by ANY test firing - more shots, more false alarms. Here you win only if EVERY test passes, so adding attributes makes a false pass harder, not easier: measured with every attribute exactly on its margin, the false-pass rate falls to about 1.2% by twelve attributes, already stricter than the 0.42% Bonferroni would impose. Correcting costs batches and buys nothing. The real problem is the one QA has not raised: the combined power. Twelve attributes at 80% each is 0.8 to the twelfth if they are independent, and that study would probably fail on a pair of identical sites. Measure the correlation between the attributes - it will be above zero and that helps - then size for the combined claim.' }
+  });
 
   add({
     id: 'changepoints', group: 'Six Sigma and process control', title: 'Changepoints: every random series has a best split',
