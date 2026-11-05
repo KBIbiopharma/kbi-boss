@@ -5,6 +5,7 @@
   'use strict';
   const E = window.MLEngine, C = window.Charts, A = window.MLAgent, D = window.MLDoe;
   const S = window.MLSpc, V = window.MLVariance, TL = window.MLTolerance, U = window.MLUncertainty;
+  const Q2 = window.MLIchQ2;
   const W = window.MLWatch;
   const h = C.esc, fmt = A.fmt, pct = A.pct;
   const range = E.range;
@@ -390,10 +391,13 @@
     analogy: 'Grading a student on questions they have never seen, not on the homework they could have memorized.',
     intro: 'A model can look brilliant on the rows it learned from and fail on new ones. Cross-validation hides part of the data, trains on the rest, and scores the model on the hidden part. Then it rotates until every row has been hidden once.',
     demo(el) {
-      el.innerHTML = '<div data-role="plot"></div><div class="demo-controls">' + btn('next', 'Next round', 'primary') + btn('reset', 'Start over', 'ghost') + '</div><p class="demo-read" data-role="read"></p>';
+      el.innerHTML = '<div data-role="plot"></div><div class="demo-controls">' + btn('next', 'Next round', 'primary') + btn('all', 'Run all five', 'ghost') + btn('reset', 'Start over', 'ghost') + '</div><p class="demo-read" data-role="read"></p>';
       const rand = E.rng(9), n = 20, xs = range(n).map(() => rand() * 10), ys = xs.map(x => 3 + 2 * x + normal(rand) * 3);
       const folds = E.makeFolds(n, 5, E.rng(2));
-      let round = -1; const scores = [];
+      /* The score to beat: fit on all twenty rows and grade on those same twenty. This is
+         the number cross-validation exists to replace, so the lesson has to show it. */
+      const trainR2 = E.regressionMetrics(ys, E.fitRidgeCore(xs.map(v => [v]), ys, 1e-8).predict(xs.map(v => [v]))).r2;
+      let round = -1; const scores = []; const oof = new Array(n);
       const draw = () => {
         const W = 640, cell = 26, H = 5 * 34 + 30;
         let b = '';
@@ -404,26 +408,46 @@
           if (r <= round) range(n).forEach(i => { b += '<rect class="' + (folds[i] === r ? 'cell-test' : 'cell-train') + '" x="' + (110 + i * cell + 2) + '" y="' + y + '" width="' + (cell - 4) + '" height="26" rx="3"/>'; });
         }
         q(el, 'plot').innerHTML = svg(W, H, 'Cross-validation rounds', b) + C.legend([{ label: 'Rows the model learns from', cls: 'cell-train', shape: 'square' }, { label: 'Hidden rows it is tested on', cls: 'cell-test', shape: 'square' }]);
-        const avg = scores.length ? E.mean(scores) : null;
-        q(el, 'read').innerHTML = round < 0 ? 'Twenty rows of data. Press <b>Next round</b> to hide 4 of them, train on the other 16, and test on the hidden 4.'
-          : round < 4 ? 'Round ' + (round + 1) + ': the model learned from the grey rows and scored <b>R² ' + scores[round].toFixed(2) + '</b> on the yellow rows it never saw.'
-            : 'Every row has been tested exactly once. The cross-validated score is the average: <b>R² ' + avg.toFixed(2) + '</b>. That is the number the agent puts on its leaderboard.';
+        if (round < 0) {
+          q(el, 'read').innerHTML = 'Twenty rows. Fitted on all twenty and graded on those same twenty, this model scores <b>R² ' + trainR2.toFixed(3) +
+            '</b> - but it has already seen every answer, so that number is a measure of memory, not of prediction. Press <b>Next round</b> to hide 4 rows, train on the other 16, and test on the hidden 4.';
+          return;
+        }
+        if (round < 4) {
+          q(el, 'read').innerHTML = 'Round ' + (round + 1) + ': the model learned from the grey rows and scored <b>R² ' + scores[round].toFixed(2) +
+            '</b> on the yellow rows it never saw. Watch how much the five rounds differ - each is only 4 rows, so one of them is a thin result on its own.';
+          return;
+        }
+        /* The agent pools every out-of-fold prediction and scores the lot once, rather than
+           averaging the five fold scores. The two are not the same number, and pooling is
+           the better one: a fold's R-squared is measured against that fold's own mean, so on
+           4 rows it swings wildly and can go negative while the model is perfectly good. */
+        const pooled = E.regressionMetrics(ys, oof).r2;
+        const avg = E.mean(scores);
+        q(el, 'read').innerHTML = 'Every row has now been predicted exactly once by a model that had not seen it. Scoring all twenty of those predictions together gives <b>R² ' +
+          pooled.toFixed(3) + '</b>, and <b>that</b> is the number the agent puts on its leaderboard. ' +
+          'Averaging the five round scores instead gives ' + avg.toFixed(3) + ' - close here, but not the same thing: each round’s R² is measured against the average of its own 4 rows, so on small folds it swings about and can even go negative while the model is fine. Pooling avoids that. ' +
+          'Against the training score of ' + trainR2.toFixed(3) + ' the honest figure is ' + (trainR2 - pooled > 0 ? 'lower by ' + (trainR2 - pooled).toFixed(3) : 'no lower') +
+          '. The gap is small because a straight line through one input has almost nothing to memorise with; give a flexible model the same data and the gap becomes the whole story, which is the next lesson.';
       };
-      q(el, 'next').onclick = () => {
+      const step = () => {
         if (round >= 4) return;
         round++;
         const tr = range(n).filter(i => folds[i] !== round), te = range(n).filter(i => folds[i] === round);
         const m = E.fitRidgeCore(tr.map(i => [xs[i]]), tr.map(i => ys[i]), 1e-8);
         const pr = m.predict(te.map(i => [xs[i]]));
+        te.forEach((i, k) => { oof[i] = pr[k]; });
         scores[round] = E.regressionMetrics(te.map(i => ys[i]), pr).r2;
         draw();
       };
-      q(el, 'reset').onclick = () => { round = -1; scores.length = 0; draw(); };
+      q(el, 'next').onclick = step;
+      q(el, 'all').onclick = () => { while (round < 4) step(); };
+      q(el, 'reset').onclick = () => { round = -1; scores.length = 0; oof.fill(undefined); draw(); };
       draw();
     },
-    steps: ['Split the rows into 5 groups (folds).', 'Train on 4 folds, test on the 5th.', 'Rotate so every fold is the test once.', 'Average the 5 test scores. With very small data the agent uses leave-one-out: every row is its own fold.'],
+    steps: ['Split the rows into 5 groups (folds).', 'Train on 4 folds, predict the 5th.', 'Rotate so every row is predicted exactly once by a model that never saw it.', 'Score all of those out-of-fold predictions together, rather than averaging the five fold scores: a fold\u2019s R\u00b2 is measured against its own small mean and swings about. With very small data the agent uses leave-one-out, where every row is its own fold.'],
     when: 'Always. It is the honest way to compare models.',
-    watch: 'If the data has a time order and the future differs from the past, even cross-validation can be optimistic.',
+    watch: 'If the data has a time order and the future differs from the past, even cross-validation can be optimistic. And anything fitted from the data - a scaling, a category encoding, a choice of which columns to keep - has to be refitted inside each fold, or the held-out rows have already influenced the model that is about to be graded on them.',
     where: 'The model leaderboard shows cross-validated scores only.',
     quiz: { q: 'A model scores R² 0.98 on its training rows but 0.40 in cross-validation. Which number should you trust?', options: ['0.98, it is higher', '0.40, it was earned on unseen rows', 'Average them: 0.69'], answer: 1, why: 'Only the cross-validated score reflects how the model does on new data. The gap means it memorized noise.' }
   });
@@ -2347,6 +2371,126 @@
   });
 
   add({
+    id: 'linearity', group: 'Validating an analytical method', title: 'Linearity is not r-squared',
+    analogy: 'A ruler that reads two centimetres long at one end still correlates beautifully with length. The correlation was never the question.',
+    intro: 'ICH Q2 asks for the slope, the intercept, the correlation, the residual sum of squares and a plot of the residuals. The plot is on that list because the numbers cannot show curvature and the picture can. A response that bends gently across the range returns an r-squared any acceptance criterion would wave through, and the residuals give it away immediately.',
+    demo(el) {
+      el.innerHTML = '<div class="demo-grid"><div><h4>The calibration curve</h4><div data-role="cal"></div></div>' +
+        '<div><h4>The residuals, which is where it shows</h4><div data-role="res"></div></div></div>' +
+        '<div class="demo-controls">' + slider('bend', 'How much the response bends', 0, 0.006, 0.0005, 0.004) + '</div><p class="demo-read" data-role="read"></p>';
+      const draw = () => {
+        const bend = Number(q(el, 'bend').value);
+        setOut(el, 'bend', bend.toFixed(4));
+        const conc = [], resp = [];
+        for (const c of [50, 75, 100, 125, 150]) for (const d of [-0.3, 0.3]) { conc.push(c); resp.push(2.5 * c + 10 - bend * c * c + d); }
+        const lin = Q2.linearity(conc, resp);
+        const f = frame(300, 230, [40, 160], [Math.min(...resp) - 20, Math.max(...resp) + 20], { l: 44, b: 34, xLabel: 'Concentration' });
+        q(el, 'cal').innerHTML = svg(300, 230, 'Response against concentration', f.axes +
+          '<path class="line" d="' + pathOf([[40, lin.intercept + lin.slope * 40], [160, lin.intercept + lin.slope * 160]], f) + '"/>' +
+          conc.map((c, i) => dot(f.sx(c), f.sy(resp[i]), 'c1', 4)).join(''));
+        const rmax = Math.max(0.6, Math.max(...lin.residuals.map(Math.abs)) * 1.3);
+        const g = frame(300, 230, [40, 160], [-rmax, rmax], { l: 44, b: 34, xLabel: 'Concentration' });
+        q(el, 'res').innerHTML = svg(300, 230, 'Residual against concentration', g.axes +
+          '<path class="cl-line" d="' + pathOf([[40, 0], [160, 0]], g) + '"/>' +
+          conc.map((c, i) => dot(g.sx(c), g.sy(lin.residuals[i]), lin.linear ? 'c1' : 'c2', 4)).join(''));
+        q(el, 'read').innerHTML = 'r&sup2; = <b>' + lin.r2.toFixed(5) + '</b>' +
+          (lin.r2 > 0.99 ? ' - through any "r&sup2; above 0.99" criterion' : '') +
+          '. Lack-of-fit test: p = <b>' + (lin.lackOfFit.p < 0.0001 ? '&lt;0.0001' : lin.lackOfFit.p.toFixed(4)) + '</b>, so the verdict is <b>' +
+          (lin.linear ? 'linear' : 'not linear') + '</b>. ' +
+          (lin.linear
+            ? 'With no bend the residuals scatter either side of zero with no pattern, which is what linearity looks like.'
+            : 'Look at the right-hand plot: the residuals form a smile. The straight line sits above the data at both ends and below it in the middle, and no amount of r&sup2; will tell you that. The test compares what the line misses against what the method misses on repeat measurements of the same standard - which is why replicating at least one level matters.');
+      };
+      q(el, 'bend').oninput = draw;
+      draw();
+    },
+    steps: ['Prepare at least five concentration levels across the range, and replicate at least one of them.', 'Fit the line and report slope, intercept, residual standard deviation and the correlation.', 'Test the shape: lack of fit against pure error where you have replicates, a fitted squared term where you do not.', 'Plot the residuals against concentration and look at them. A smile or a frown is curvature; a fan is non-constant variance and calls for weighting.'],
+    when: 'Every method validation, and again whenever the range is extended or the detection changes.',
+    watch: 'r-squared rises with the spread of the standards, so widening the range flatters it. A high r-squared on a bent response is the normal case, not an unlucky one.',
+    where: 'The limits bench, third mode. The example it ships with is exactly this trap: r&sup2; of 0.995 on a response that bends.',
+    quiz: { q: 'Your calibration returns r² = 0.9995 and the residuals form a clear U shape. What do you report?', options: ['Linear: r² comfortably exceeds the criterion', 'Not linear over this range: the U is curvature the correlation cannot see', 'Linear, but add a note about the residuals'], answer: 1, why: 'The U means the straight line is systematically wrong at the ends and in the middle, so predictions from it are biased by position in the range. That is what non-linear means. Either narrow the range to the part that is straight, or fit and validate the curve you actually have.' }
+  });
+
+  add({
+    id: 'detection-limits', group: 'Validating an analytical method', title: 'LOD and LOQ: where the formula stops knowing',
+    analogy: 'Holding a tape measure past its end and reading a number off the air. The arithmetic is fine; there is just nothing there.',
+    intro: 'The detection limit is 3.3 times sigma over the slope, and the quantitation limit is 10 times sigma over the slope. Two things in that sentence do the damage. Sigma has three permitted meanings and they do not agree. And the formula will happily return a concentration far below anything anybody measured, because dividing does not know where your standards were.',
+    demo(el) {
+      el.innerHTML = '<div class="demo-controls">' + btn('residual', 'Sigma = residual SD', 'primary') + btn('intercept', 'Sigma = SE of intercept', 'ghost') + '</div>' +
+        '<div data-role="plot"></div><p class="demo-read" data-role="read"></p>';
+      const rand = E.rng(21);
+      const conc = [], resp = [];
+      for (const c of [50, 75, 100, 125, 150]) for (const d of [0, 1]) { conc.push(c); resp.push(2.5 * c + 10 + normal(rand) * 3); }
+      const lin = Q2.linearity(conc, resp);
+      const show = which => {
+        el.querySelectorAll('.demo-controls .btn').forEach(b => { b.className = 'btn ' + (b.getAttribute('data-role') === which ? 'primary' : 'ghost'); });
+        const lim = Q2.detectionLimits(lin, { sigma: which });
+        const other = Q2.detectionLimits(lin, { sigma: which === 'residual' ? 'intercept' : 'residual' });
+        const hi = 170;
+        const f = frame(640, 170, [0, hi], [0, 1], { l: 40, b: 36, xLabel: 'Concentration', yFmt: () => '' });
+        const mark = (v, lab, cls) => (v > hi ? '' : '<line class="' + cls + '" x1="' + f.sx(v) + '" x2="' + f.sx(v) + '" y1="30" y2="110"/>' +
+          '<text class="lbl-strong" x="' + f.sx(v) + '" y="24" text-anchor="middle">' + lab + '</text>');
+        q(el, 'plot').innerHTML = svg(640, 170, 'Where the limits fall against the standards that were run', f.axes +
+          '<rect class="usual" x="' + f.sx(lin.range[0]) + '" y="40" width="' + (f.sx(lin.range[1]) - f.sx(lin.range[0])) + '" height="60"/>' +
+          '<text x="' + f.sx((lin.range[0] + lin.range[1]) / 2) + '" y="76" text-anchor="middle" class="lbl-strong">standards actually run</text>' +
+          [...new Set(conc)].map(c => dot(f.sx(c), 100, 'c1', 4)).join('') +
+          mark(lim.lod, 'LOD ' + lim.lod.toPrecision(3), 'ref') + mark(lim.loq, 'LOQ ' + lim.loq.toPrecision(3), 'target-line'));
+        q(el, 'read').innerHTML = 'With sigma taken from ' + h(lim.sigmaSource) + ', LOQ = <b>' + lim.loq.toPrecision(4) +
+          '</b>. Switch to the other sigma and the same data gives <b>' + other.loq.toPrecision(4) + '</b> - a factor of ' +
+          (Math.max(lim.loq, other.loq) / Math.min(lim.loq, other.loq)).toFixed(1) + ' between two answers both permitted by the guideline, which is why the one you used has to be reported with the number. ' +
+          (lim.loqInRange
+            ? 'Here the limit falls inside the shaded band, so it rests on measurements.'
+            : 'Both fall well below the shaded band: nobody ran a standard anywhere near them. The line was extended into a region the method was never shown to work in. ICH expects the limit to be confirmed by analysing samples at about that level, and until that is done the number is an estimate of where the limit might be - not a validated limit.');
+      };
+      q(el, 'residual').onclick = () => show('residual');
+      q(el, 'intercept').onclick = () => show('intercept');
+      show('residual');
+    },
+    steps: ['Fit the calibration first: both limits are built from its slope and its spread.', 'Choose sigma and say which: the residual standard deviation of the regression, the standard error of the intercept, or the standard deviation of the blank.', 'LOD = 3.3 sigma / slope, LOQ = 10 sigma / slope.', 'Check where the answer falls. If it is below your lowest standard, it is an extrapolation, and confirming it means running samples at about that level and showing the method performs there.'],
+    when: 'Impurity and degradation methods, residual testing, anything where the question is whether a small amount is present.',
+    watch: 'A quantitation limit quoted without its sigma is not reproducible: the three permitted choices can differ by several fold on the same data. And a limit far below the calibration range is a prediction about untested territory.',
+    where: 'The limits bench, third mode, reported beside the linearity with the sigma named and the range checked.',
+    quiz: { q: 'Standards ran from 80 to 120% of nominal. The computed LOQ is 0.4% of nominal. What is the honest reporting?', options: ['LOQ is 0.4% of nominal', 'The formula gives 0.4%, which is two hundred times below the lowest standard, so it must be confirmed by analysis at that level before it is a limit', 'Set LOQ to the lowest standard, 80%'], answer: 1, why: 'The formula extends the fitted line into a region nobody measured. The method may be perfectly good there, or hopeless, and this data cannot tell you which. Confirming it is a short experiment; quoting it unconfirmed is a claim you cannot defend when asked.' }
+  });
+
+  add({
+    id: 'robustness-study', group: 'Validating an analytical method', title: 'Robustness: what "no significant effect" is worth',
+    analogy: 'A metal detector that is switched off also reports no metal. Before you trust the all-clear, check the batteries.',
+    intro: 'A robustness study varies method parameters on purpose - pH, temperature, flow rate - and looks for an effect on the result. Finding none is the expected outcome of a small study whether the method is robust or not, because eight runs cannot see much. So the number that matters is not the p-value; it is the smallest effect the study could have detected.',
+    demo(el) {
+      el.innerHTML = '<div data-role="plot"></div><div class="demo-controls">' + slider('noise', 'Run-to-run variation of the assay', 0.2, 3, 0.1, 2) +
+        slider('acc', 'Effect you would call acceptable', 0.5, 4, 0.5, 1) + '</div><p class="demo-read" data-role="read"></p>';
+      const draw = () => {
+        const sd = Number(q(el, 'noise').value), acc = Number(q(el, 'acc').value);
+        setOut(el, 'noise', sd.toFixed(1)); setOut(el, 'acc', acc.toFixed(1));
+        const rand = E.rng(5), runs = [];
+        for (const a of [-1, 1]) for (const b of [-1, 1]) for (const c of [-1, 1]) {
+          runs.push({ factors: { pH: a === 1 ? 3.1 : 2.9, Temperature: b === 1 ? 32 : 28, FlowRate: c === 1 ? 1.05 : 0.95 },
+            response: 100 + 1.2 * a + normal(rand) * sd });
+        }
+        const r = Q2.robustness(runs, { acceptable: acc });
+        C.hbar(q(el, 'plot'), r.effects.map(e => ({
+          label: e.factor, value: Math.abs(e.effect), cls: e.p < 0.05 ? 'accent' : '',
+          text: 'effect ' + e.effect.toFixed(2) + ', p ' + (e.p < 0.001 ? '<0.001' : e.p.toFixed(3))
+        })), { min: 0, max: Math.max(acc, r.minimumDetectableEffect, ...r.effects.map(e => Math.abs(e.effect))) * 1.15, ref: { value: r.minimumDetectableEffect, label: 'smallest detectable' } });
+        q(el, 'read').innerHTML = 'pH really does move the result, by 2.4 units from its low setting to its high one. ' +
+          'At this level of run-to-run variation the study can only reliably detect an effect of <b>' + r.minimumDetectableEffect.toFixed(2) +
+          '</b>, against the <b>' + acc.toFixed(1) + '</b> you said you would accept. Verdict: <b>' + h(r.verdict) + '</b>. ' +
+          (r.underpowered
+            ? 'So finding nothing here would say nothing about the method. Turn the variation down, or add runs, until the smallest detectable effect drops below what you care about - then an all-clear means something.'
+            : 'The study could have seen an effect that mattered, so its answer is worth having.');
+      };
+      q(el, 'noise').oninput = draw; q(el, 'acc').oninput = draw;
+      draw();
+    },
+    steps: ['List the method parameters an analyst might plausibly get slightly wrong, and the small deliberate variation for each.', 'Run a small two-level design over them - a fractional factorial or Plackett-Burman keeps the run count down.', 'Decide beforehand what size of effect would actually matter, in the units of the result.', 'Report each effect with its interval, and the smallest effect the design could detect. If that is bigger than what matters, the study is uninformative rather than reassuring.'],
+    when: 'Before a method transfers to another site or another analyst, which is when small deviations start happening for real.',
+    watch: 'This is the same trap as reading a large p-value as proof of no difference, and it is worse here because the study is deliberately small. Robustness studies are routinely declared passed on designs that could not have detected a problem twice the size of the specification.',
+    where: 'The limits bench, third mode: pick Robustness, give the acceptable effect, and every p-value is reported beside the smallest effect the design could see.',
+    quiz: { q: 'Eight runs, three parameters, nothing significant, and the smallest detectable effect is 4% against a specification window of ±2%. What does the study show?', options: ['The method is robust to all three parameters', 'Nothing useful: it could not have detected a problem twice the size of the whole specification window', 'The method is robust to within 4%'], answer: 1, why: 'A study blind to anything smaller than 4% cannot reassure you about a 2% window. The all-clear is a property of the design, not of the method. More runs or tighter execution is the fix; reporting it as a pass is how a fragile method reaches another site.' }
+  });
+
+  add({
     id: 'codon-optimization', group: 'Optimizing with evolution', title: 'Codon optimization: evolving a gene without changing the protein',
     analogy: 'Spelling the same word in two languages. "Colour" and "color" read the same to a person, but one is what the local reader expects. The protein is the meaning; the codons are the spelling, and each host has its own preference.',
     intro: 'Most amino acids can be written with several codons, so a protein has astronomically many possible genes. A genetic algorithm breeds a population of spellings: it keeps the ones that score well, mixes them, and mutates a codon here and there. Drag through the generations below and watch a deliberately badly-spelled gene improve, one objective at a time.',
@@ -2536,6 +2680,58 @@
     watch: 'Conformal assumes the new rows look like the calibration rows. Outside the range of the data it has no mechanism to widen, so it keeps its nominal width and quietly stops being valid - which is why extrapolation needs flagging separately. Local scaling helps but does not repeal this.',
     where: 'The plasmid tool wraps the model tournament in split conformal, reports the coverage it measured against the rate it claims, and names the ceiling the available data can support.',
     quiz: { q: 'A model reports ±2σ intervals and, measured on held-back rows, they contain the truth 76% of the time while claiming 95%. What has gone wrong?', options: ['The model is not accurate enough', 'The sigma came from residuals on the rows the model was fitted to, so it measured memorisation rather than prediction', 'The test set is too small'], answer: 1, why: 'An in-sample residual is shrunk by the fitting itself - the more flexible the model, the more it shrinks - so a band built from it is optimistic for exactly the same reason a training R² is. Rebuilding the band from errors on rows the model never saw fixes the claim without changing the prediction at all: the point estimate is identical, the honesty of the band is not.' }
+  });
+
+  add({
+    id: 'reading-errors', group: 'Using the results', title: 'When the tool refuses: reading the errors',
+    analogy: 'A pharmacist who will not fill a prescription with the dose missing is not being obstructive. The missing dose is the finding.',
+    intro: 'This tool refuses a lot, and every refusal is a sentence rather than a code. That is deliberate: a number it cannot defend is worse than a blank, so when an assumption fails or the data cannot carry the question, it says which and what would change the answer. Refusals fall into three kinds, and the kind tells you what to do next.',
+    demo(el) {
+      const KINDS = [
+        ['not-enough', 'Not enough data', 'The method needs more before it means anything. The fix is more data, and the message says how much.'],
+        ['wrong-kind', 'Wrong kind of data', 'The data is fine; it is the wrong shape for this method. The fix is usually another method, and the message names it.'],
+        ['assumption', 'An assumption failed', 'The method would run and the answer would be wrong. The fix is a different method, a transform, or reporting what does not depend on the assumption.']
+      ];
+      const CASES = [
+        { kind: 'not-enough', msg: 'Need at least 8 points to set limits worth drawing. Below that the limits move more than the process does.',
+          means: 'Control limits computed from fewer than eight points are driven by the points themselves, so the chart would flag the process for being small.', fix: 'Collect more periods. The chart will wait.' },
+        { kind: 'not-enough', msg: 'Need at least 8 gaps - that is 9 events - before limits mean anything. Below that the chart moves more than the process does.',
+          means: 'Rare-event charts need a run of events to estimate the rate between them.', fix: 'Keep recording. In the meantime the raw gaps are still worth plotting by eye.' },
+        { kind: 'wrong-kind', msg: 'Counts must be whole numbers and cannot be negative. If these are measurements rather than counts, use the I-MR chart instead.',
+          means: 'A count chart gets its spread from the mean, which is only true for counts. A measurement has its own spread.', fix: 'Switch to the individuals chart, which is named in the message.' },
+        { kind: 'wrong-kind', msg: 'A p-chart counts defective units, so a count cannot exceed the number inspected. If a unit can hold several defects, this is a u-chart.',
+          means: 'More defects than units means you are counting defects, not defectives - a different question with a different chart.', fix: 'Use the u-chart.' },
+        { kind: 'assumption', msg: 'Every point is identical, so there is no spread to measure a shift against.',
+          means: 'With no variation there is no scale to express a shift in, so any limit would be arbitrary.', fix: 'Check the data really is what you think - identical values usually mean a export or rounding problem.' },
+        { kind: 'assumption', msg: 'The slope is zero, so the response does not change with concentration and no limit can be derived from it.',
+          means: 'Detection limits divide by the slope. A flat calibration has no detection limit because the method cannot detect.', fix: 'Investigate the method before validating it.' }
+      ];
+      el.innerHTML = '<div data-role="map"></div><div class="demo-controls">' + CASES.map((c, i) => btn('c' + i, 'Refusal ' + (i + 1), i ? 'ghost' : 'primary')).join('') + '</div>' +
+        '<div data-role="detail"></div>';
+      const show = k => {
+        el.querySelectorAll('.demo-controls .btn').forEach((b, i) => { b.className = 'btn ' + (i === k ? 'primary' : 'ghost'); });
+        const c = CASES[k], kind = KINDS.find(x => x[0] === c.kind);
+        const W = 640, H = 120;
+        let b = '';
+        KINDS.forEach((x, i) => {
+          const cx = 110 + i * 210, on = x[0] === c.kind;
+          b += '<rect class="' + (on ? 'cell-test' : 'cell-train') + '" x="' + (cx - 95) + '" y="20" width="190" height="52" rx="8"/>' +
+            '<text class="' + (on ? 'lbl-strong' : '') + '" x="' + cx + '" y="50" text-anchor="middle">' + h(x[1]) + '</text>';
+        });
+        q(el, 'map').innerHTML = svg(W, H, 'The three kinds of refusal', b);
+        q(el, 'detail').innerHTML = '<div class="card"><p class="demo-read"><b>What the tool says</b><br><code>' + h(c.msg) + '</code></p>' +
+          '<p class="demo-read"><b>What it means.</b> ' + h(c.means) + '</p>' +
+          '<p class="demo-read"><b>What to do.</b> ' + h(c.fix) + '</p>' +
+          '<p class="demo-read"><b>Kind.</b> ' + h(kind[1]) + ' — ' + h(kind[2]) + '</p></div>';
+      };
+      CASES.forEach((_, i) => { q(el, 'c' + i).onclick = () => show(i); });
+      show(0);
+    },
+    steps: ['Read the whole sentence. Every refusal here names the cause, not just the symptom.', 'Decide which of the three kinds it is: not enough data, wrong kind of data, or a failed assumption.', 'Not enough data is a plan: the message says how much more. Wrong kind usually names the method you should be using instead.', 'A failed assumption is the one worth stopping on. Report what does not depend on the assumption - a ratio, an observed count - and say plainly what was withheld and why.'],
+    when: 'Every time something does not compute. The message is the finding, not an obstacle to the finding.',
+    watch: 'The temptation is to find a setting that makes the refusal go away. Dropping points until a normality test passes, or charting counts as measurements because that chart will accept them, produces a number and destroys its meaning.',
+    where: 'Every tool. Refusals appear in the red strip above the results, and the reason is part of the exported report so a reviewer sees it too.',
+    quiz: { q: 'Capability refuses to report PPM because the data fails its normality test. What is the best response?', options: ['Remove the outliers until it passes', 'Report Cp, Cpk and the observed out-of-specification count, and say the tail figures were withheld and why', 'Report the PPM anyway with a footnote'], answer: 1, why: 'Cp, Cpk and the observed count need no distribution at all, so they stand. The tail figures would be wrong by orders of magnitude on the wrong distribution - measured on a right-skewed impurity, the normal figure read 62 PPM against a true 1,000. Deleting points to pass a test changes the data to suit the method, which is the one move that turns a refusal into a false result.' }
   });
 
   add({

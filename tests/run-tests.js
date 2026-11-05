@@ -5706,3 +5706,91 @@ test('ICH Q2 robustness reports what the study could have detected, not just wha
   assert.throws(() => Q.robustness(mk(2.0, 0), { acceptable: 1 }), /no residual error/);
   assert.throws(() => Q.robustness([{ factors: { a: 1 }, response: 1 }], {}), /at least 4 runs/);
 });
+
+/* The cross-validation lesson told readers the agent averages the five fold scores and that
+   the average "is the number the agent puts on its leaderboard". It is not: the agent pools
+   every out-of-fold prediction and scores the lot once. On the lesson's own data those are
+   0.874 and 0.890 - close enough that nobody would notice, and different procedures.
+   Averaging fold scores is also the worse of the two, because a fold's R-squared is measured
+   against that fold's own mean and swings about on four rows. This pins the lesson to what
+   the code actually does. */
+test('the cross-validation lesson teaches the procedure the agent uses', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'learn.js'), 'utf8');
+  const lesson = src.slice(src.indexOf("id: 'cross-validation'"), src.indexOf("id: 'overfitting'"));
+
+  // The agent collects out-of-fold predictions and scores them together.
+  const engine = fs.readFileSync(path.join(ROOT, 'engine.js'), 'utf8');
+  const cv = engine.slice(engine.indexOf('function crossValidate'), engine.indexOf('function fitFull'));
+  assert.ok(/const oof = new Array\(n\)/.test(cv) && /return oof/.test(cv),
+    'this test assumes the agent returns out-of-fold predictions; if that changed, the lesson has to change with it');
+
+  // So must the lesson.
+  assert.ok(/oof\[i\] = pr\[k\]/.test(lesson), 'the lesson must collect out-of-fold predictions the way the agent does');
+  assert.ok(/E\.regressionMetrics\(ys, oof\)/.test(lesson), 'and score them together, not fold by fold');
+  assert.ok(/that<\/b> is the number the agent puts on its leaderboard/.test(lesson),
+    'and say which of the two numbers is the leaderboard one');
+  assert.ok(!/the cross-validated score is the average/i.test(lesson), 'the old, wrong claim must be gone');
+
+  // It must also show the training score, or the gap it exists to expose is invisible.
+  assert.ok(/trainR2/.test(lesson), 'the lesson must show what fitting and grading on the same rows gives');
+  assert.ok(/measure of memory, not of prediction/.test(lesson), 'and say why that number is not evidence');
+
+  /* And the two numbers it quotes have to be the ones its own code produces. */
+  const normal = r => { const u = Math.max(1e-12, r()), v = r(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+  const rand = E.rng(9), n = 20;
+  const xs = E.range(n).map(() => rand() * 10), ys = xs.map(x => 3 + 2 * x + normal(rand) * 3);
+  const trainR2 = E.regressionMetrics(ys, E.fitRidgeCore(xs.map(v => [v]), ys, 1e-8).predict(xs.map(v => [v]))).r2;
+  const folds = E.makeFolds(n, 5, E.rng(2)), oof = new Array(n), per = [];
+  for (let r = 0; r < 5; r++) {
+    const tr = E.range(n).filter(i => folds[i] !== r), te = E.range(n).filter(i => folds[i] === r);
+    const m = E.fitRidgeCore(tr.map(i => [xs[i]]), tr.map(i => ys[i]), 1e-8);
+    const pr = m.predict(te.map(i => [xs[i]]));
+    te.forEach((i, k) => { oof[i] = pr[k]; });
+    per.push(E.regressionMetrics(te.map(i => ys[i]), pr).r2);
+  }
+  const pooled = E.regressionMetrics(ys, oof).r2;
+  assert.ok(Math.abs(pooled - 0.890) < 0.002, 'the lesson quotes a pooled score near 0.890, measured ' + pooled.toFixed(3));
+  assert.ok(Math.abs(E.mean(per) - 0.874) < 0.002, 'and a fold average near 0.874, measured ' + E.mean(per).toFixed(3));
+  assert.notStrictEqual(pooled.toFixed(3), E.mean(per).toFixed(3), 'the two methods must visibly differ, or the lesson has no point to make');
+  assert.ok(trainR2 > pooled, 'the training score must be the optimistic one: ' + trainR2.toFixed(3) + ' vs ' + pooled.toFixed(3));
+});
+
+/* The "when the tool refuses" lesson quotes real refusal messages. A lesson that quotes the
+   software is only useful while the quotes are real, and a message reworded in the code
+   would leave the lesson teaching a sentence nobody will ever see. Every quoted refusal must
+   still exist, character for character, in the file that throws it. */
+test('the refusals quoted in the academy are the ones the tool actually throws', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'learn.js'), 'utf8');
+  const lesson = src.slice(src.indexOf("id: 'reading-errors'"), src.indexOf("id: 'reading-results'"));
+  const quoted = [...lesson.matchAll(/msg: '((?:[^'\\]|\\.)+)'/g)].map(m => m[1].replace(/\\'/g, "'"));
+  assert.ok(quoted.length >= 5, 'the lesson should show several refusals, found ' + quoted.length);
+
+  const all = fs.readdirSync(ROOT).filter(f => /\.js$/.test(f) && f !== 'learn.js')
+    .map(f => fs.readFileSync(path.join(ROOT, f), 'utf8')).join('\n');
+  for (const msg of quoted) {
+    assert.ok(all.includes(msg), 'the lesson quotes a refusal that no longer exists in the code:\n  ' + msg);
+  }
+  // Each one is sorted into a kind, and each kind is explained.
+  for (const k of ['not-enough', 'wrong-kind', 'assumption']) {
+    assert.ok(lesson.includes("kind: '" + k + "'"), 'no refusal is classified as ' + k);
+  }
+  assert.ok(/the message is the finding/i.test(lesson), 'the lesson must make the point that a refusal is a result');
+});
+
+/* Every result panel has to say how to read what it printed. A page of correct numbers that
+   a reader cannot act on has not finished the job, and for a validation panel the inference
+   is most of the value: what the verdict permits, what it blocks, and what it does not cover. */
+test('the ICH Q2 results explain how to read them', () => {
+  const ui = fs.readFileSync(path.join(ROOT, 'tolerance-ui.js'), 'utf8');
+  const panel = ui.slice(ui.indexOf('// ---------- ICH Q2'), ui.indexOf('// ---------- wiring'));
+  const howto = (panel.match(/How to read this, and what it means/g) || []).length;
+  assert.strictEqual(howto, 2, 'both the linearity and the robustness result need a how-to-read block, found ' + howto);
+  // It has to carry the inference, not restate the arithmetic.
+  for (const phrase of ['What to do next', 'r\\u00b2 is not the verdict', 'What it does not cover', 'Verdict']) {
+    assert.ok(panel.includes(phrase), 'the how-to-read block is missing "' + phrase + '"');
+  }
+  // And both branches of each verdict must be written, or half the readers get nothing.
+  assert.ok(/lin\.linear[\s\S]{0,400}\?[\s\S]{0,900}:/.test(panel), 'the linearity guidance must cover both verdicts');
+  assert.ok(/res\.underpowered[\s\S]{0,200}\?/.test(panel), 'the robustness guidance must cover the underpowered case');
+  assert.ok(/\.howto/.test(fs.readFileSync(path.join(ROOT, 'style.css'), 'utf8')), 'and the block needs its styling');
+});

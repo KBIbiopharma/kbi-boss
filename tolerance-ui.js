@@ -385,7 +385,24 @@
       tile('LOD', q2f(lim.lod), '3.3 sigma / slope') +
       tile('LOQ', q2f(lim.loq), lim.loqInRange ? 'inside the measured range' : 'BELOW the lowest standard') +
       '</div>' +
-      '<p class="why">' + h(lin.why) + '</p><p class="why">' + h(lim.why) + '</p></div>';
+      '<p class="why">' + h(lin.why) + '</p><p class="why">' + h(lim.why) + '</p>' +
+      '<details class="howto" open><summary>How to read this, and what it means</summary><div class="howto-body">' +
+      '<p><b>Verdict first.</b> ' + (lin.linear
+        ? 'The straight line misses by no more than the method misses on repeat measurements of the same standard. That is what linearity means, and it is what lets you read a concentration off the line anywhere in this range.'
+        : 'The straight line is systematically wrong at some concentrations, by more than the method\u2019s own repeat error. Results read off it are biased by where they sit in the range - high in the middle and low at the ends, or the reverse. Narrow the range to the part that is straight, or fit and validate the curve you actually have.') + '</p>' +
+      '<p><b>r\u00b2 is not the verdict</b> and never was. It is reported because the guideline asks for it, and because a reader who has only ever seen r\u00b2 needs to see it sitting next to a test that disagrees with it.</p>' +
+      '<p><b>The intercept</b> matters when it is large relative to the response at the top standard' +
+      (lin.interceptPctOfTop === null ? '' : ' - here ' + q2f(lin.interceptPctOfTop) + '%') +
+      '. A big intercept means a blank contribution or an interference, and it biases low concentrations most.</p>' +
+      '<p><b>The limits.</b> ' + (lim.loqInRange
+        ? 'Both fall inside the range you measured, so they rest on data. Report the sigma you used alongside them.'
+        : 'They fall below your lowest standard, so they are the fitted line extended into territory nobody tested. Before quoting the quantitation limit, run samples at about that level and show the method performs there - that is what turns an estimate into a validated limit.') + '</p>' +
+      '<p><b>What to do next.</b> ' + (lin.linear && lim.loqInRange
+        ? 'Nothing here blocks the validation. Carry the sigma choice and the range into the method file so the numbers can be reproduced.'
+        : !lin.linear
+          ? 'Fix the range or the model before going further: accuracy and precision measured against a biased line inherit the bias.'
+          : 'Confirm the quantitation limit experimentally, then the package is consistent.') + '</p>' +
+      '</div></details></div>';
     $('tl-out').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
@@ -405,7 +422,19 @@
       '</div><div class="table-scroll"><table class="pm"><thead><tr><th>Parameter</th><th>Low</th><th>High</th><th>Effect</th><th>95% interval</th><th>p</th></tr></thead><tbody>' +
       res.effects.map(e => '<tr><td>' + h(e.factor) + '</td><td>' + h(String(e.low)) + '</td><td>' + h(String(e.high)) + '</td><td>' + q2f(e.effect) +
         '</td><td>' + q2f(e.ci[0]) + ' to ' + q2f(e.ci[1]) + '</td><td>' + (e.p < 0.001 ? '&lt;0.001' : e.p.toFixed(3)) + '</td></tr>').join('') +
-      '</tbody></table></div><p class="why">' + h(res.why) + '</p></div>';
+      '</tbody></table></div><p class="why">' + h(res.why) + '</p>' +
+      '<details class="howto" open><summary>How to read this, and what it means</summary><div class="howto-body">' +
+      '<p><b>Read the two numbers together.</b> A p-value above 0.05 means this study did not detect an effect. Whether that is reassuring depends entirely on the smallest effect it could have detected' +
+      (res.acceptable === null ? '' : ', which here is ' + q2f(res.minimumDetectableEffect) + ' against the ' + q2f(res.acceptable) + ' you called acceptable') + '.</p>' +
+      '<p><b>Verdict.</b> ' + (res.underpowered
+        ? 'Uninformative. The study was blind to effects larger than you would tolerate, so finding nothing says something about the design and nothing about the method. Add runs, or reduce run-to-run variation, until the smallest detectable effect drops below what matters.'
+        : /not robust/.test(res.verdict)
+          ? 'At least one parameter moves the result by more than noise. The interval tells you how much: tighten the control on that parameter in the method, or widen the acceptance if the effect is genuinely tolerable.'
+          : res.acceptable === null
+            ? 'No acceptable effect was given, so there is nothing to judge the result against. Decide what size of change would actually matter and enter it - without that, a non-significant result on this many runs is the expected outcome either way.'
+            : 'The study could have seen an effect that mattered, and did not. That is a real all-clear for the parameters tested, at the variations tested.') + '</p>' +
+      '<p><b>What it does not cover.</b> Only the parameters you varied, only over the ranges you varied them, and only one at a time unless the design carried interactions. A parameter left out of the study is not shown to be harmless.</p>' +
+      '</div></details></div>';
     $('tl-out').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
