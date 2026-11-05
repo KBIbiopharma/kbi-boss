@@ -638,7 +638,12 @@
       '<div class="tile"><div class="lbl">Between-site share of spread</div><div class="val">' +
         (r.betweenShare === null ? '\u2013' : Math.round(r.betweenShare * 100) + '%') + '</div><div class="sub">the rest is inside the sites</div></div>' +
       '<div class="tile"><div class="lbl">Worst site</div><div class="val">' + h(r.worst) + '</div><div class="sub">best is ' + h(r.best) + '</div></div>' +
-      '</div><p class="why">' + h(r.why) + '</p>' +
+      '</div>' +
+      (!r.equivalence ? '' : '<div class="table-scroll"><table class="pm"><thead><tr><th>Pair</th><th>Difference</th><th>90% interval</th><th>Verdict</th></tr></thead><tbody>' +
+        r.equivalence.pairs.map(pr => '<tr><td>' + h(pr.a) + ' vs ' + h(pr.b) + '</td><td>' + f2n(pr.diff) + '</td><td>' +
+          (pr.ciLow === null ? '\u2013' : f2n(pr.ciLow) + ' to ' + f2n(pr.ciHigh)) + '</td><td>' + h(pr.verdict) + '</td></tr>').join('') +
+        '</tbody></table></div>') +
+      '<p class="why">' + h(r.why) + '</p>' +
       '<details class="howto" open><summary>How to read this, and what it means</summary><div class="howto-body">' +
       '<p><b>The per-site rows are always the answer.</b> Each is a capability index for a process that actually exists. The combined index is the convenience, and it is the one that can be wrong.</p>' +
       '<p><b>' + (r.poolable
@@ -666,6 +671,7 @@
     $('vc-map-agree').hidden = m !== 'agree';
     $('vc-agree-note').hidden = m !== 'agree';
     $('vc-spec').hidden = m !== 'grr' && m !== 'sites';
+    if ($('vc-margin-wrap')) $('vc-margin-wrap').hidden = m !== 'sites';
     $('vc-spec-note').hidden = m !== 'grr';
     $('vc-advanced').hidden = m !== 'components';
     $('vc-run').textContent = m === 'components' ? 'Split the variation' : m === 'agree' ? 'Check the agreement' : m === 'sites' ? 'Compare the sites' : 'Check the measurement system';
@@ -708,7 +714,8 @@
         window.MLVarianceRun = summaryAgree(res);
       } else if (mode() === 'sites') {
         const spec = { lsl: $('vc-lsl').value === '' ? null : Number($('vc-lsl').value), usl: $('vc-usl').value === '' ? null : Number($('vc-usl').value) };
-        const res = window.MLSpc.crossSite(got.rows.map(r => ({ site: r.group, value: r.value })), spec);
+        const margin = $('vc-margin') && $('vc-margin').value !== '' ? $('vc-margin').value : null;
+        const res = window.MLSpc.crossSite(got.rows.map(r => ({ site: r.group, value: r.value })), spec, { margin });
         last = { kind: 'sites', r: res, rows: got.rows };
         renderSites(res);
       } else {

@@ -13,6 +13,7 @@
      test that the tolerance tool already carries, and reimplementing Anderson-Darling here
      to avoid the dependency would be two versions of one thing waiting to disagree. */
   const tolerance = () => root.MLTolerance || (typeof require !== 'undefined' ? require('./tolerance.js') : null);
+  const tost = () => root.MLTost || (typeof require !== 'undefined' ? require('./tost.js') : null);
 
   const num = v => v !== null && v !== undefined && v !== '' && isFinite(Number(v));
 
@@ -744,12 +745,54 @@
     const withinVar = means.ssw !== undefined && means.df2 > 0 ? means.ssw / means.df2 : null;
     const betweenShare = totalVar > 0 && withinVar !== null ? Math.max(0, (totalVar - withinVar) / totalVar) : null;
 
+    /* Whether the sites DIFFER and whether they are INTERCHANGEABLE are different questions,
+       and a transfer needs the second. The tests above can only fail to find a difference,
+       which is not evidence of sameness. Given a margin - the difference you are willing to
+       call unimportant, set before looking - every pair of sites is tested for equivalence.
+
+       Every pair must pass, and that needs no correction for multiplicity: requiring all of
+       several claims is an intersection-union test, and its error rate is already at most
+       alpha. Correcting here would make a conservative test more conservative still. */
+    let equivalence = null;
+    const T = tost();
+    if (opt.margin !== undefined && opt.margin !== null && opt.margin !== '' && T) {
+      const margin = Number(opt.margin);
+      if (!(isFinite(margin) && margin > 0)) throw new Error('The equivalence margin must be a number greater than zero: the difference between sites you are willing to call unimportant.');
+      const pairs = [];
+      for (let i = 0; i < names.length; i++) {
+        for (let j = i + 1; j < names.length; j++) {
+          const rowsFor = clean.filter(r => r.site === names[i] || r.site === names[j]).map(r => ({ group: r.site, value: r.value }));
+          try {
+            const t = T.analyze(rowsFor, { margin, reference: names[i], test: names[j] });
+            pairs.push({ a: names[i], b: names[j], verdict: t.verdict, equivalent: !!t.equivalent, differs: !!t.differs,
+              diff: t.diff, ciLow: t.ciLow, ciHigh: t.ciHigh, needed: t.needed === undefined ? null : t.needed });
+          } catch (e) { pairs.push({ a: names[i], b: names[j], verdict: 'not testable', error: e.message, equivalent: false, differs: false, diff: null, ciLow: null, ciHigh: null, needed: null }); }
+        }
+      }
+      const failed = pairs.filter(p => !p.equivalent);
+      const inconclusive = failed.filter(p => !p.differs);
+      equivalence = {
+        margin, pairs, allEquivalent: failed.length === 0,
+        verdict: failed.length === 0 ? 'every pair is equivalent within the margin'
+          : failed.some(p => p.differs) ? 'at least one pair differs by more than the margin'
+            : 'inconclusive: no pair was shown to differ, and none was shown to be equivalent either',
+        why: 'Margin ' + margin + ', applied to all ' + pairs.length + ' pair' + (pairs.length === 1 ? '' : 's') + ' of sites. ' +
+          (failed.length === 0
+            ? 'Every interval for a difference between sites sits inside the margin, so on this attribute the sites are interchangeable at the stated confidence.'
+            : failed.some(p => p.differs)
+              ? 'These pairs differ by more than the margin: ' + failed.filter(p => p.differs).map(p => p.a + ' vs ' + p.b).join(', ') + '. That is a real finding about the transfer, not a sample-size problem.'
+              : 'No pair was shown to differ, but none was shown to be equivalent either - the intervals are wider than the margin. That is the inconclusive case, and it is a statement about the study rather than the sites' +
+                (inconclusive.some(p => p.needed) ? ': about ' + Math.max(...inconclusive.map(p => p.needed || 0)) + ' results per site would settle it.' : '.')) +
+          ' Every pair has to pass, and that needs no correction for multiplicity: requiring all of several claims at once is an intersection-union test, whose overall risk is already at most the 5% each one carries. Correcting here would only make a conservative test more conservative.'
+      };
+    }
     const combined = poolable ? capability(allValues, spec) : null;
     const best = per[per.length - 1], worst = per[0];
 
     return {
       sites: names.length, perSite: per, best: best.site, worst: worst.site,
       meansTest: means, spreadsTest: spreads, sameCentre, sameSpread, poolable,
+      equivalence,
       combined: combined ? { Cp: combined.Cp, Cpk: combined.Cpk, Pp: combined.Pp, Ppk: combined.Ppk, n: combined.n, mean: combined.mean, sd: combined.sdOverall } : null,
       betweenShare, spread: { worstPpk: worst.Ppk, bestPpk: best.Ppk },
       why: names.length + ' sites, ' + clean.length + ' results. ' +
@@ -764,6 +807,7 @@
             '. Read the per-site rows instead; they are each correct.') +
         (betweenShare === null ? '' : ' Between-site differences account for ' + Math.round(betweenShare * 100) + '% of the total spread' +
           (betweenShare > 0.3 ? ', so harmonising the sites is where the capability is, not tightening any one of them.' : ', so most of the variation lives inside the sites rather than between them, and harmonising would buy little.')) +
+        (equivalence ? ' Equivalence against a margin of ' + equivalence.margin + ': ' + equivalence.verdict + '.' : ' No equivalence margin was given, so nothing here shows the sites are interchangeable - only whether a difference was detected, which is a different claim.') +
         ' Worst is ' + worst.site + (worst.Ppk === null ? '' : ' at Ppk ' + worst.Ppk.toFixed(2)) + ', best is ' + best.site + (best.Ppk === null ? '' : ' at Ppk ' + best.Ppk.toFixed(2)) + '.'
     };
   }

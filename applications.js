@@ -564,7 +564,7 @@
       ],
       gaps: [
         'No automated PPQ or stage-2 continued-verification report format.',
-        'No equivalence test between sites against a margin. The capability comparison asks whether the sites differ, which is not the same question as whether they are close enough to be interchangeable; that claim needs a margin set in advance and the equivalence bench, one attribute at a time.',
+        'No multi-attribute comparability in one step. Sites are compared one attribute at a time, so a transfer covering a dozen quality attributes is a dozen separate runs with nothing joining them into a verdict. Requiring every attribute to pass also makes the combined claim far harder than any single one - twelve attributes each powered at 80% give about a 7% chance of all passing - and the per-attribute sample size does not account for that.',
         'Nothing here reads a batch record. Every input is a table somebody has already assembled.'
       ]
     },

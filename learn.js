@@ -2532,7 +2532,7 @@
       q(el, 'gap').oninput = draw;
       draw();
     },
-    steps: ['Compute capability at each site separately. These are always the honest numbers.', 'Test whether the sites may be pooled at all: one test for the centres, one for the spreads.', 'Only if both survive does a combined index describe a real single process.', 'If they do not, report per site and say which assumption failed. Then ask how much of the total spread is between sites: that is what tells you whether harmonising is worth a programme.'],
+    steps: ['Compute capability at each site separately. These are always the honest numbers.', 'Test whether the sites may be pooled at all: one test for the centres, one for the spreads.', 'Only if both survive does a combined index describe a real single process.', 'If they do not, report per site and say which assumption failed. Then ask how much of the total spread is between sites: that is what tells you whether harmonising is worth a programme.', 'To claim the sites are interchangeable rather than merely not-shown-to-differ, set a margin beforehand and test every pair for equivalence. Every pair has to pass, and that needs no correction for multiplicity.'],
     when: 'Technology transfer, multi-site release, any comparability claim where somebody wants one figure for the product.',
     watch: 'A combined index that looks poor is sometimes read as "both sites are struggling". Check the centres first - it may be that both sites are capable and simply disagree about where the target is, which is a much easier problem and a completely different investigation.',
     where: 'The variance bench, fourth mode: give it a site column, a result column and the specification limits.',

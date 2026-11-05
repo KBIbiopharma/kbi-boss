@@ -5845,3 +5845,48 @@ test('capability across sites refuses one index when the sites are not one proce
   assert.throws(() => SPC.crossSite(mk('A', 98, 0.5, 3).concat(mk('B', 98, 0.5, 30)), spec), /fewer than 5 results/);
   assert.throws(() => SPC.crossSite(mk('A', 98, 0.5, 30).concat(mk('B', 98, 0.5, 30)), {}), /specification limit/);
 });
+
+/* Whether two sites DIFFER and whether they are INTERCHANGEABLE are different questions, and
+   a transfer needs the second. The capability comparison can only fail to find a difference,
+   which is not evidence of sameness - the same confusion the equivalence bench exists to
+   fix. Given a margin, every pair of sites is tested properly, and inconclusive stays an
+   available answer. */
+test('site comparison can demonstrate equivalence, not just fail to find a difference', () => {
+  const rand = E.rng(3);
+  const nz = () => { const u = Math.max(1e-12, rand()), v = rand(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+  const mk = (site, m, sd, n) => E.range(n).map(() => ({ site, value: m + nz() * sd }));
+  const spec = { lsl: 96, usl: 100 };
+
+  // Close together, plenty of data, a sensible margin: equivalent.
+  const close = SPC.crossSite(mk('A', 98.2, 0.5, 30).concat(mk('B', 98.15, 0.5, 30)), spec, { margin: 0.5 });
+  assert.ok(close.equivalence.allEquivalent, 'two tight, close sites should pass: ' + close.equivalence.verdict);
+  assert.strictEqual(close.equivalence.pairs.length, 1);
+
+  // Genuinely apart: a finding, not a sample-size problem, and it says so.
+  const apart = SPC.crossSite(mk('A', 98.2, 0.5, 30).concat(mk('B', 97.0, 0.5, 30)), spec, { margin: 0.5 });
+  assert.strictEqual(apart.equivalence.allEquivalent, false);
+  assert.ok(/differ by more than the margin/.test(apart.equivalence.why));
+  assert.ok(/not a sample-size problem/.test(apart.equivalence.why), 'a real difference must not be blamed on the study');
+
+  /* The third answer. Six results a side cannot show equivalence to a tight margin, and
+     must not be allowed to read as a pass just because no difference was found. */
+  const thin = SPC.crossSite(mk('A', 98.2, 0.5, 6).concat(mk('B', 98.2, 0.5, 6)), spec, { margin: 0.2 });
+  assert.strictEqual(thin.equivalence.allEquivalent, false);
+  assert.ok(/inconclusive/.test(thin.equivalence.verdict), 'got: ' + thin.equivalence.verdict);
+  assert.ok(/statement about the study rather than the sites/.test(thin.equivalence.why));
+
+  // Three sites means three pairs, and every one has to pass.
+  const three = SPC.crossSite(mk('A', 98.2, 0.5, 25).concat(mk('B', 98.2, 0.5, 25)).concat(mk('C', 96.9, 0.5, 25)), spec, { margin: 0.5 });
+  assert.strictEqual(three.equivalence.pairs.length, 3);
+  assert.strictEqual(three.equivalence.allEquivalent, false, 'one bad site must fail the set');
+  /* And no multiplicity correction, deliberately: requiring all of several claims is an
+     intersection-union test and is already conservative. Correcting would be wrong. */
+  assert.ok(/intersection-union/.test(three.equivalence.why), 'the reason for not correcting must be stated');
+
+  // Without a margin nothing is claimed, and the absence is called out rather than left blank.
+  const bare = SPC.crossSite(mk('A', 98.2, 0.5, 30).concat(mk('B', 98.15, 0.5, 30)), spec);
+  assert.strictEqual(bare.equivalence, null);
+  assert.ok(/nothing here shows the sites are interchangeable/.test(bare.why));
+
+  assert.throws(() => SPC.crossSite(mk('A', 98, 0.5, 30).concat(mk('B', 98, 0.5, 30)), spec, { margin: -1 }), /greater than zero/);
+});
