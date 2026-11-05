@@ -352,6 +352,9 @@ progress { flex: 1; height: 10px; accent-color: var(--steel); }
 .chart .target-line { stroke: var(--good); stroke-width: 2; stroke-dasharray: 2 3; }
 .chart .cl-line { stroke: var(--muted); stroke-width: 1.2; }
 .chart .line.thin { stroke-width: 1.2; stroke: var(--steel-soft); }
+/* The alternative candidate shape on a size-distribution plot: same colour as its own
+   series so the pairing is obvious, dashed because it is the shape that was NOT chosen. */
+.chart .line.alt-shape { stroke-dasharray: 4 3; stroke-width: 1.4; }
 .chart .pt.small { stroke-width: 1; }
 .chart .pt.flag { fill: var(--bad); stroke: var(--surface); stroke-width: 1.5; }
 .chart .whisker { stroke: var(--muted); stroke-width: 1.5; }

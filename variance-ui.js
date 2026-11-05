@@ -29,6 +29,7 @@
 
   // ---------- what each mode is for, and what it needs ----------
   const MODE_DESC = {
+    psd: 'Counts per size bin fitted as a distribution rather than as a handful of separate counts. The slope of count against size describes the shape; the nested fraction that reaches the larger threshold tests it. Two containers can report the same count at 10 micrometres and hold completely different populations, and it is the heavier tail - the large, rare particles - that matters most.',
     subgroup: 'Several measurements per batch or per time point, charted as the subgroup average with its spread. The spread chart is read first, because the limits on the averages are computed from it - and specification limits are never drawn here, because a subgroup mean is not a unit of product.',
     sites: 'Capability at each site, and whether the sites behave as one process at all. A single combined index is only reported when their centres and their spreads both survive a test; otherwise it is withheld, because one number over several different processes describes a mixture nobody runs.',
     components: 'Splits a total spread into between-group and within-group variation, says what share each owns, and names which groups genuinely differ rather than looking different by chance.',
@@ -36,6 +37,12 @@
     agree: 'For a judgement rather than a measurement: whether appraisers agree with themselves, with each other, and with the truth. Reports kappa beside the agreement percentage, because when the defect is rare an appraiser who passes everything scores high on the percentage and nothing on kappa.'
   };
   const SHAPES = {
+    psd: '<p class="hint">One row per size bin: the threshold in micrometres and the count. Add a group column to compare containers, batches, lines or methods. USP &lt;788&gt; gives you the two thresholds below and that is enough to <em>test</em> the tail; a flow-imaging run with four or more bins is what lets the shape be <em>checked</em>.</p>' +
+      '<div class="table-scroll"><table class="shape-table"><thead><tr><th>Batch</th><th>Size_um</th><th>Count_per_container</th></tr></thead><tbody>' +
+      '<tr><td>B-401</td><td>10</td><td>3980</td></tr><tr><td>B-401</td><td>25</td><td>318</td></tr>' +
+      '<tr><td>B-402</td><td>10</td><td>4040</td></tr><tr><td>B-402</td><td>25</td><td>471</td></tr>' +
+      '<tr class="dim"><td colspan="3">&hellip; every threshold present for every group</td></tr></tbody></table></div>' +
+      '<p class="hint">Counts are read as cumulative &mdash; at or above each size &mdash; because that is what a light obscuration counter reports and what the compendial thresholds mean. If yours are counts <em>within</em> each bin, say so in the dropdown and they will be summed from the largest bin down.</p>',
     subgroup: '<p class="hint">One row per measurement: which subgroup it belongs to, and the number. Two or more per subgroup, at least eight subgroups. Subgroup <em>within</em> a stream, not across them &mdash; a subgroup spanning two filling heads hides the difference between them inside the limits.</p>' +
       '<div class="table-scroll"><table class="shape-table"><thead><tr><th>Batch</th><th>Fill_Weight</th></tr></thead><tbody>' +
       '<tr><td>B-01</td><td>100.2</td></tr><tr><td>B-01</td><td>99.7</td></tr><tr><td>B-01</td><td>100.4</td></tr>' +
@@ -67,6 +74,7 @@
       '<p class="hint">Build the sample set close to half good and half defective, however unrepresentative that feels. A set matching real production &mdash; a few percent defective &mdash; cannot support a miss rate: there is almost nothing to miss, and the appraiser who passes every vial comes out looking excellent.</p>'
   };
   const EXAMPLES = {
+    psd: [['vc-ex1', 'Example: same count, heavier tail'], ['vc-ex2', 'Example: two bins, nothing checks the fit'], ['vc-ex3', 'Example: flow imaging, four bins']],
     subgroup: [['vc-ex1', 'Example: a stable filling line'], ['vc-ex2', 'Example: one subgroup blows out the spread'], ['vc-ex3', 'Example: two heads sampled into one subgroup']],
     sites: [['vc-ex1', 'Example: two sites, one process'], ['vc-ex2', 'Example: the sites are centred differently'], ['vc-ex3', 'Example: one site is far more variable']],
     components: [['vc-ex1', 'Example: one supplier lot is the problem'], ['vc-ex2', 'Example: the lots are fine, the assay is noisy'], ['vc-ex3', 'Example: analyst-to-analyst drift']],
@@ -81,6 +89,8 @@
   const VALUE = /result|value|assay|purity|potency|conc|content|titer|titre|measure|area|response|reading|%/i;
   const CALL = /call|rating|rated|judge|judgement|judgment|decision|disposition|verdict|accept|reject|pass|fail|result|grade|inspection/i;
   const TRUTH = /standard|known|truth|true|reference|master|expected|actual|gold|answer/i;
+  const SIZE = /size|micron|micrometre|micrometer|\bum\b|\bu?m\b|diameter|threshold|bin|ecd/i;
+  const COUNT = /count|particles?|number|^n$|per ?container|per ?ml|cumulative/i;
 
   function loadText(text) {
     let t;
@@ -113,9 +123,45 @@
     opt('vc-a-rating', t.columns, aCall);
     $('vc-a-standard').innerHTML = '<option value="">\u2014 none, judge agreement only \u2014</option>' +
       t.columns.map(c => '<option' + (c === aTruth ? ' selected' : '') + '>' + h(c) + '</option>').join('');
+    /* The size column is the one holding the thresholds, which look like 2, 5, 10, 25 - a
+       small set of repeated round numbers - while the count column holds large, mostly
+       distinct values. Guessing by name first, then by that shape. */
+    if ($('vc-psd-size')) {
+      const sizeCol = t.columns.find(c => SIZE.test(c)) ||
+        numeric.filter(c => new Set(t.rows.map(r => String(r[t.columns.indexOf(c)]))).size <= 8)[0] || numeric[0] || t.columns[0];
+      const countCol = numeric.find(c => c !== sizeCol && COUNT.test(c)) || numeric.find(c => c !== sizeCol) || t.columns.find(c => c !== sizeCol) || sizeCol;
+      opt('vc-psd-size', t.columns, sizeCol);
+      opt('vc-psd-count', t.columns, countCol);
+      const gcols = t.columns.filter(c => c !== sizeCol && c !== countCol);
+      $('vc-psd-group').innerHTML = '<option value="">\u2014 none, one distribution \u2014</option>' +
+        gcols.map(c => '<option' + (GROUP.test(c) ? ' selected' : '') + '>' + h(c) + '</option>').join('');
+      fillPsdThresholds();
+    }
     $('vc-settings').hidden = false;
     $('vc-error').hidden = true;
     describe();
+  }
+
+  /* The two tail-fraction thresholds come from the sizes actually present. Default to the
+     widest pair, which is the most informative fraction the data supports. */
+  function fillPsdThresholds() {
+    if (!table || !$('vc-psd-lo')) return;
+    const si = table.columns.indexOf($('vc-psd-size').value);
+    const ci = table.columns.indexOf($('vc-psd-count').value);
+    const sizes = Array.from(new Set(table.rows.map(r => E.toNumber(r[si])).filter(v => v !== null && v > 0))).sort((a, b) => a - b);
+    /* The upper threshold defaults to the largest one that actually found something in every
+       group. Defaulting to a threshold where the count is zero gives a fraction of 0% with a
+       one-sided bound and nothing to compare, which is the least informative pair available -
+       and it reads as a result rather than as a bad default. The option is still in the list. */
+    const counted = sizes.filter(v => {
+      const rows = table.rows.filter(r => E.toNumber(r[si]) === v);
+      return rows.length > 0 && rows.every(r => { const c = E.toNumber(r[ci]); return c !== null && c > 0; });
+    });
+    const hi = counted.length > 1 ? counted[counted.length - 1] : sizes[sizes.length - 1];
+    const lo = counted.length > 1 ? counted[0] : sizes[0];
+    const o = (sel, val) => { $(sel).innerHTML = sizes.map(v => '<option' + (v === val ? ' selected' : '') + '>' + v + '</option>').join(''); };
+    o('vc-psd-lo', lo);
+    o('vc-psd-hi', hi);
   }
 
   function readRows() {
@@ -132,6 +178,21 @@
         out.push({ group: String(r[gi]).trim(), value });
       });
       if (!out.length) throw new Error('No numeric results found in "' + $('vc-value').value + '".');
+      return { rows: out, skipped };
+    }
+    if (mode() === 'psd') {
+      const si = col('vc-psd-size'), ci = col('vc-psd-count');
+      const gi = $('vc-psd-group').value ? table.columns.indexOf($('vc-psd-group').value) : -1;
+      if (si < 0 || ci < 0) throw new Error('Pick the column holding the size thresholds and the column holding the counts.');
+      if (si === ci) throw new Error('The size column and the count column must be different.');
+      if (gi >= 0 && (gi === si || gi === ci)) throw new Error('The group column must be a column of its own, not the size or the count.');
+      const out = []; let skipped = 0;
+      table.rows.forEach(r => {
+        const size = E.toNumber(r[si]), count = E.toNumber(r[ci]);
+        if (size === null || count === null) { skipped++; return; }
+        out.push({ size, count, group: gi >= 0 ? String(r[gi]).trim() : '' });
+      });
+      if (!out.length) throw new Error('No rows with both a size and a count were found.');
       return { rows: out, skipped };
     }
     if (mode() === 'agree') {
@@ -166,6 +227,14 @@
     try {
       const { rows, skipped } = readRows();
       const tail = skipped ? ' ' + skipped + ' row' + (skipped === 1 ? '' : 's') + ' skipped (no number in the result column).' : '';
+      if (mode() === 'psd') {
+        const sizes = Array.from(new Set(rows.map(r => r.size))).sort((a, b) => a - b);
+        const g = Array.from(new Set(rows.map(r => r.group).filter(x => x !== '')));
+        $('vc-read').textContent = rows.length + ' row' + (rows.length === 1 ? '' : 's') + ': ' + sizes.length + ' size threshold' + (sizes.length === 1 ? '' : 's') +
+          ' (' + sizes.join(', ') + ' um)' + (g.length ? ' across ' + g.length + ' group' + (g.length === 1 ? '' : 's') + ' (' + g.slice(0, 6).join(', ') + (g.length > 6 ? '\u2026' : '') + ')' : ', one distribution') +
+          '. ' + (sizes.length < 3 ? 'Two thresholds fit a two-parameter shape exactly, so the tail fraction can be tested but the shape itself cannot be checked.' : sizes.length < 4 ? 'Three thresholds give the power law one spare point to be checked against; a lognormal needs four.' : 'Enough thresholds to check the shape and compare candidate shapes.') + tail;
+        return;
+      }
       if (mode() === 'components') {
         const g = Array.from(new Set(rows.map(r => r.group)));
         const sizes = g.map(n => rows.filter(r => r.group === n).length);
@@ -554,9 +623,30 @@
   /* Built here rather than taken from a real study, so each one illustrates exactly one
      situation and the write-up can be checked against what was injected. */
   function example(kind) {
-    const seeds = { components: { vc1: 7, vc2: 19, vc3: 41 }, grr: { vc1: 3, vc2: 23, vc3: 57 }, agree: { vc1: 13, vc2: 31, vc3: 61 }, sites: { vc1: 3, vc2: 11, vc3: 29 }, subgroup: { vc1: 11, vc2: 17, vc3: 23 } };
+    const seeds = { components: { vc1: 7, vc2: 19, vc3: 41 }, grr: { vc1: 3, vc2: 23, vc3: 57 }, agree: { vc1: 13, vc2: 31, vc3: 61 }, sites: { vc1: 3, vc2: 11, vc3: 29 }, subgroup: { vc1: 11, vc2: 17, vc3: 23 }, psd: { vc1: 5, vc2: 5, vc3: 5 } };
     const r = E.rng(seeds[mode()]['vc' + kind]);
     const N = () => { const u = Math.max(1e-12, r()); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * r()); };
+    if (mode() === 'psd') {
+      /* Two subvisible populations sampled particle by particle and then binned, so the
+         counts are internally consistent rather than typed in. Batch B is drawn from a wider
+         lognormal and then SCALED so its 10 micrometre count matches batch A's - which is the
+         case the whole mode exists for: the number anybody looks at is unchanged and the
+         population is not the same one. */
+      const draw = (sigma, n) => { const out = []; for (let i = 0; i < n; i++) out.push(Math.exp(Math.log(3) + sigma * N())); return out; };
+      const A = draw(1.0, 60000), B = draw(1.45, 60000);
+      const at = (ds, t) => ds.filter(d => d >= t).length;
+      const thresholds = kind === 3 ? [2, 5, 10, 25] : [10, 25];
+      const scale = at(A, 10) / at(B, 10);
+      const lines = ['Batch,Size_um,Count_per_container'];
+      if (kind === 2) {
+        // One container, two thresholds: the case where nothing can check the fitted shape.
+        for (const t of [10, 25]) lines.push('B-401,' + t + ',' + at(A, t));
+        return lines.join('\n');
+      }
+      for (const t of thresholds) lines.push('B-401,' + t + ',' + at(A, t));
+      for (const t of thresholds) lines.push('B-402,' + t + ',' + Math.round(at(B, t) * scale));
+      return lines.join('\n');
+    }
     if (mode() === 'subgroup') {
       /* A filling line sampled five per batch. The three examples are a stable line, one
          batch whose spread blows out, and the subgrouping mistake: two heads running 6 apart
@@ -718,6 +808,153 @@
     }
   }
 
+  // ---------- particle size distribution ----------
+  /* The log-log plot is the whole picture: cumulative count against size, where a power law
+     is a straight line. Drawn on log axes because that is the only scale on which four
+     decades of count and one of size are both readable, and because a bent line on this
+     plot IS the finding - it is the shape changing with size. */
+  function drawPsdCurve(el, fits) {
+    const W = Math.max(320, el.clientWidth || 700), H = 300, L = 62, R = 16, T = 14, B = 46;
+    const allSizes = fits.reduce((a, f) => a.concat(f.r.fitBins.map(b => b.size), f.r.curve.map(c => c.size)), []);
+    const allCounts = fits.reduce((a, f) => a.concat(f.r.fitBins.map(b => b.count), f.r.curve.map(c => c.powerLaw)), []).filter(v => v > 0);
+    const lx = v => Math.log10(v), ly = v => Math.log10(v);
+    const x0 = Math.min.apply(null, allSizes.map(lx)), x1 = Math.max.apply(null, allSizes.map(lx));
+    const y0 = Math.min.apply(null, allCounts.map(ly)), y1 = Math.max.apply(null, allCounts.map(ly));
+    const px = (x1 - x0) * 0.04 || 0.1, py = (y1 - y0) * 0.06 || 0.1;
+    const sx = v => L + (lx(v) - (x0 - px)) / ((x1 + px) - (x0 - px)) * (W - L - R);
+    const sy = v => H - B - (ly(v) - (y0 - py)) / ((y1 + py) - (y0 - py)) * (H - T - B);
+    let b = '';
+    for (let d = Math.floor(y0 - py); d <= Math.ceil(y1 + py); d++) {
+      const v = Math.pow(10, d);
+      if (ly(v) < y0 - py || ly(v) > y1 + py) continue;
+      b += '<line class="gridline" x1="' + L + '" x2="' + (W - R) + '" y1="' + sy(v) + '" y2="' + sy(v) + '"/>' +
+        '<text x="' + (L - 6) + '" y="' + (sy(v) + 4) + '" text-anchor="end">' + (v >= 1 ? v.toLocaleString('en-US') : v) + '</text>';
+    }
+    const ticks = Array.from(new Set(fits[0].r.bins.map(x => x.size))).sort((p, q) => p - q);
+    for (const t of ticks) b += '<text x="' + sx(t) + '" y="' + (H - B + 16) + '" text-anchor="middle">' + t + '</text>';
+    b += '<line class="axis" x1="' + L + '" x2="' + (W - R) + '" y1="' + (H - B) + '" y2="' + (H - B) + '"/>';
+    fits.forEach((f, i) => {
+      const cls = i === 0 ? '' : 's' + (i + 1);
+      const inRange = f.r.curve.filter(c => c.powerLaw > 0);
+      b += '<path class="line ' + cls + '" d="' + inRange.map((c, j) => (j ? 'L' : 'M') + sx(c.size).toFixed(1) + ' ' + sy(c.powerLaw).toFixed(1)).join('') + '"/>';
+      if (f.r.logNormal) b += '<path class="line alt-shape ' + cls + '" d="' +
+        f.r.curve.filter(c => c.logNormal > 0).map((c, j) => (j ? 'L' : 'M') + sx(c.size).toFixed(1) + ' ' + sy(c.logNormal).toFixed(1)).join('') + '"/>';
+      for (const bin of f.r.fitBins) b += '<g data-tip="' + h((f.label || 'All') + '— ' + bin.size + ' um: ' + bin.count.toLocaleString('en-US') + ' counted') + '">' +
+        '<circle class="hit" cx="' + sx(bin.size) + '" cy="' + sy(bin.count) + '" r="12"/>' +
+        '<circle class="pt ' + cls + '" cx="' + sx(bin.size) + '" cy="' + sy(bin.count) + '" r="4.5"/></g>';
+    });
+    b += '<text class="lbl-strong" x="' + ((L + W - R) / 2) + '" y="' + (H - 6) + '" text-anchor="middle">Size threshold (micrometres, log scale)</text>' +
+      '<text class="lbl-strong" transform="translate(14 ' + ((T + H - B) / 2) + ') rotate(-90)" text-anchor="middle">Count at or above that size (log scale)</text>';
+    el.innerHTML = '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Cumulative particle count against size on log axes">' + b + '</svg>';
+    if (CH.bindTips) CH.bindTips(el);
+  }
+
+  function renderPsd(rows) {
+    const P = window.MLParticles;
+    if (!P) throw new Error('The particle distribution module did not load.');
+    const kind = $('vc-psd-kind').value;
+    const groupNames = Array.from(new Set(rows.map(r => r.group)));
+    const grouped = groupNames.length > 1 || groupNames[0] !== '';
+    const groups = grouped
+      ? groupNames.map(g => ({ label: g, rows: rows.filter(r => r.group === g) }))
+      : [{ label: '', rows }];
+
+    const fits = groups.map(g => ({ label: g.label, r: P.analyze(g.rows, { kind }) }));
+    const lo = Number($('vc-psd-lo').value), hi = Number($('vc-psd-hi').value);
+
+    let tail = null, tailErr = null;
+    if (lo < hi) {
+      try { tail = P.tailFraction(groups.map((g, i) => ({ label: g.label || 'All rows', rows: fits[i].r.bins })), lo, hi); }
+      catch (e) { tailErr = e.message; }
+    } else tailErr = 'The tail fraction needs two different thresholds, the smaller one first.';
+
+    let slope = null, slopeErr = null;
+    if (groups.length > 1) {
+      try { slope = P.compare(groups, { kind }); } catch (e) { slopeErr = e.message; }
+    }
+
+    const f = fits[0].r;
+    const pctl = v => (100 * v).toPrecision(3) + '%';
+    last = { kind: 'psd', fits, tail, slope, rows };
+
+    let html = '<div class="card"><h3>' + (grouped ? 'Size distributions compared across ' + groups.length + ' groups' : 'The size distribution across the bins') + '</h3>';
+
+    /* The test first and the description second, deliberately: the tail fraction is what
+       carries a measured false-alarm rate, and the slope is what explains the picture. */
+    if (tail) {
+      html += '<div class="tiles">' +
+        '<div class="tile hero-tile"><div class="lbl">Reaches ' + hi + ' um, of those at ' + lo + ' um</div><div class="val">' +
+        (tail.groups.length === 1 ? pctl(tail.groups[0].fraction) : tail.groups.map(g => pctl(g.fraction)).join(' vs ')) +
+        '</div><div class="sub">' + (tail.groups.length === 1 ? '95% interval ' + pctl(tail.groups[0].ci[0]) + ' to ' + pctl(tail.groups[0].ci[1])
+          : tail.differs ? 'the tail changed shape' : 'no shape change detected') + '</div></div>' +
+        '<div class="tile"><div class="lbl">Falls off as size to the power</div><div class="val">' + f2(f.alpha) +
+        '</div><div class="sub">' + (f.alphaCi ? '95% interval ' + f2(f.alphaCi[0]) + ' to ' + f2(f.alphaCi[1]) : 'no interval: ' + f.fitBins.length + ' bins fit exactly') + '</div></div>' +
+        '<div class="tile"><div class="lbl">Bins fitted</div><div class="val">' + f.fitBins.length +
+        '</div><div class="sub">' + f.dMin + ' to ' + f.dMax + ' um' + (f.zeroBins.length ? ', ' + f.zeroBins.length + ' zero set aside' : '') + '</div></div>' +
+        '<div class="tile"><div class="lbl">Shape checkable</div><div class="val">' + (f.checkable ? 'Yes' : 'No') +
+        '</div><div class="sub">' + (f.comparable ? 'and comparable against a lognormal' : f.checkable ? 'but not comparable: needs 4 bins' : 'two bins fit a two-parameter line exactly') + '</div></div>' +
+        '</div>';
+    }
+
+    html += '<div id="vc-psd-chart" class="chart"></div>' +
+      '<p class="hint">Solid line: the fitted power law, a straight line on these axes. ' +
+      (f.logNormal ? 'Dashed: a lognormal fitted to the same bins. Where they part company is the extrapolation you cannot check. ' : '') +
+      'Dots are your counts.</p>';
+
+    if (tail) {
+      html += '<h4>The tail fraction: the test</h4>' +
+        '<div class="table-scroll"><table class="pm"><thead><tr><th>Group</th><th>At ' + lo + ' um</th><th>At ' + hi + ' um</th><th>Fraction reaching ' + hi + ' um</th><th>95% interval</th></tr></thead><tbody>' +
+        tail.groups.map(g => '<tr><td>' + h(g.label) + '</td><td>' + g.n.toLocaleString('en-US') + '</td><td>' + g.k.toLocaleString('en-US') +
+          '</td><td><b>' + pctl(g.fraction) + '</b></td><td>' + pctl(g.ci[0]) + ' to ' + pctl(g.ci[1]) + '</td></tr>').join('') +
+        '</tbody></table></div>';
+      if (tail.pairs.length) {
+        html += '<div class="table-scroll"><table class="pm"><thead><tr><th>Pair</th><th>Difference</th><th>95% interval</th><th>p</th><th>Verdict</th></tr></thead><tbody>' +
+          tail.pairs.map(x => '<tr' + (x.differs ? ' class="hi"' : '') + '><td>' + h(x.a) + ' vs ' + h(x.b) + '</td><td>' +
+            (x.diff >= 0 ? '+' : '') + pctl(x.diff) + '</td><td>' + pctl(x.ci[0]) + ' to ' + pctl(x.ci[1]) + '</td><td>' + pFmt(x.p) +
+            '</td><td>' + (x.differs ? '<b>shape differs</b>' : 'not distinguishable') + '</td></tr>').join('') +
+          '</tbody></table></div>';
+      }
+      html += '<p class="why">' + h(tail.why) + '</p>';
+    } else if (tailErr) {
+      html += '<h4>The tail fraction</h4><p class="why">Not available: ' + h(tailErr) + '</p>';
+    }
+
+    if (fits.length > 1) {
+      html += '<h4>The slope: the description</h4>' +
+        '<div class="table-scroll"><table class="pm"><thead><tr><th>Group</th><th>Exponent</th><th>95% interval</th><th>Residual spread</th><th>Better shape</th></tr></thead><tbody>' +
+        fits.map(x => '<tr><td>' + h(x.label || 'All rows') + '</td><td>' + f2(x.r.alpha) + '</td><td>' +
+          (x.r.alphaCi ? f2(x.r.alphaCi[0]) + ' to ' + f2(x.r.alphaCi[1]) : 'not estimable') + '</td><td>' +
+          (x.r.powerLaw.residSd === null ? 'exact fit, nothing left over' : f3(x.r.powerLaw.residSd)) + '</td><td>' +
+          (x.r.comparable ? (x.r.preferred || 'neither clearly') : 'needs 4 bins') + '</td></tr>').join('') +
+        '</tbody></table></div>' +
+        /* When the two verdicts disagree, say so here rather than leaving somebody to notice
+           that one table says changed and the other says not. On this tool's own four-bin
+           example the exponent nearly halves - 1.44 against 0.84 - and the slope test still
+           returns no difference, which is the measured 22% power showing up in practice. */
+        ((tail && tail.differs && slope && slope.testable && !slope.shapesDiffer)
+          ? '<p class="demo-read"><b>These two disagree, and the fraction is the one to believe.</b> The exponents above are far apart, the tail fraction says the shape moved, and the slope test still returns no difference \u2013 which is the 22% detection rate showing up in practice rather than a contradiction. The slope\u2019s error bar is the scatter about a straight line, and most of that scatter here is the curve genuinely bending.</p>'
+          : '') +
+        '<p class="why">' + h(slope ? slope.why : slopeErr || '') + '</p>';
+    }
+
+    html += '<p class="why">' + h(f.why) + '</p>';
+
+    html += '<details class="howto" open><summary>How to read this, and what it means</summary><div class="howto-body">' +
+      '<p><b>Why a count is not a distribution.</b> Two containers can report the same count at ' + lo + ' micrometres and hold completely different populations: one where the count collapses with size, one where a flat tail carries far more large particles. The large ones are both the rarest and the ones that matter, so a count chart on the ' + lo + ' um number is blind to exactly the change you would want to catch. The exponent is the shape in one number - a steep value means the population dies off fast with size, a shallow one means a heavy tail.</p>' +
+      '<p><b>Test with the fraction, describe with the slope.</b> The counts are nested: every particle at or above ' + hi + ' um is also at or above ' + lo + ', so the fraction reaching ' + hi + ' is a proportion with an exact binomial error rather than a ratio of two noisy numbers. Measured on simulated populations, that test fired 5.7% of the time under the null against the 5% it claims, and caught a real shape change that raised the ' + hi + ' um count 2.6-fold at an unchanged ' + lo + ' um count in <b>100%</b> of runs. The slope comparison, on the same data, caught that same change in <b>22%</b> and fired 0 times in 300 under the null. Its error bar is the scatter about a straight line, and on a real population most of that scatter is the curve genuinely bending rather than sampling noise - so it describes the wrong thing and comes out far too wide. Use the slope to say what the shape is; use the fraction to say whether it moved.</p>' +
+      (f.checkable ? '' : '<p><b>Nothing here tests the shape.</b> Two thresholds determine a two-parameter line exactly, so the fit cannot be wrong on this data - and that is not reassuring, it means no residual exists to check it against. USP &lt;788&gt; reports exactly two thresholds, so this is the normal situation rather than bad luck. The tail fraction above is unaffected, because it is a count of nested events and assumes no shape at all. What you cannot do is push the fitted line past ' + f.dMax + ' micrometres.</p>') +
+      '<p><b>Extrapolation is where the assumption gets spent, and more bins do not fix it.</b> ' +
+      (f.divergence && f.divergence.ratio !== null
+        ? 'At ' + f.divergence.size.toPrecision(3) + ' um, past every bin measured, the power law here predicts ' + f.divergence.ratio.toFixed(1) + ' times as many particles as the lognormal fitted to the same bins. '
+        : '') +
+      'Measured on simulated lognormal populations: extrapolating to 50 micrometres from the two USP thresholds overshot the truth by <b>1.5x</b>, and adding two <i>smaller</i> bins at 2 and 5 um made it <b>worse</b>, at 2.7x - because the fit then averages a slope over a range where the slope is genuinely changing. Bins that <i>bracket</i> the size you want got it to within <b>6%</b>. If you need a number at 50 um, measure near 50 um; more bins at the small end will not buy it.</p>' +
+      '<p><b>What this does not cover.</b> It fits one population at a time. A container holding both silicone oil droplets and protein aggregates holds two distributions, and a single exponent will land between them and describe neither - which is itself worth noticing, because a line that visibly bends on the chart above is usually two mechanisms rather than one bad fit. Nothing here reads a particle image, so the type call stays human: this measures the sizes, not what the particles are. And it issues no compendial verdict - which tier a result falls in, and whether it is reportable, is a regulated decision this tool refuses.</p>' +
+      '</div></details></div>';
+
+    $('vc-out').innerHTML = html;
+    drawPsdCurve($('vc-psd-chart'), fits);
+  }
+
   // ---------- wiring ----------
   function showMode() {
     const m = mode();
@@ -727,18 +964,20 @@
     $('vc-map-components').hidden = m !== 'components' && m !== 'sites' && m !== 'subgroup';
     $('vc-map-grr').hidden = m !== 'grr';
     $('vc-map-agree').hidden = m !== 'agree';
+    if ($('vc-map-psd')) $('vc-map-psd').hidden = m !== 'psd';
     $('vc-agree-note').hidden = m !== 'agree';
     $('vc-spec').hidden = m !== 'grr' && m !== 'sites' && m !== 'subgroup';
     if ($('vc-margin-wrap')) $('vc-margin-wrap').hidden = m !== 'sites';
 
     $('vc-spec-note').hidden = m !== 'grr';
     $('vc-advanced').hidden = m !== 'components';
-    $('vc-run').textContent = m === 'components' ? 'Split the variation' : m === 'agree' ? 'Check the agreement' : m === 'sites' ? 'Compare the sites' : m === 'subgroup' ? 'Chart it' : 'Check the measurement system';
+    $('vc-run').textContent = m === 'components' ? 'Split the variation' : m === 'agree' ? 'Check the agreement' : m === 'sites' ? 'Compare the sites' : m === 'subgroup' ? 'Chart it' : m === 'psd' ? 'Fit the distribution' : 'Check the measurement system';
     $('vc-examples').innerHTML = EXAMPLES[m].map(([id, label]) => '<button class="btn ghost small" id="' + id + '" type="button">' + h(label) + '</button>').join('') +
       '<button class="btn ghost small" id="vc-clear" type="button">Clear</button>';
     bindExamples();
     $('vc-data').placeholder = m === 'components' ? 'Lot,Result\nL-2401,96.2\nL-2401,96.6\nL-2402,94.1'
       : m === 'agree' ? 'Vial,Inspector,Call,Known\nV-01,Ana,accept,accept\nV-01,Ana,accept,accept\nV-01,Ben,reject,accept'
+      : m === 'psd' ? 'Batch,Size_um,Count_per_container\nB-401,10,3980\nB-401,25,318\nB-402,10,4040\nB-402,25,471'
       : 'Sample,Analyst,Result\nS-01,Analyst 1,98.4\nS-01,Analyst 1,98.6';
     $('vc-out').innerHTML = ''; $('vc-error').hidden = true;
     if (table) { describe(); } else { $('vc-read').textContent = ''; }
@@ -771,6 +1010,8 @@
         last = { kind: 'agree', r: res, rows: got.rows };
         renderAgree(res, got.rows);
         window.MLVarianceRun = summaryAgree(res);
+      } else if (mode() === 'psd') {
+        renderPsd(got.rows);
       } else if (mode() === 'subgroup') {
         const spec = { lsl: $('vc-lsl').value === '' ? null : Number($('vc-lsl').value), usl: $('vc-usl').value === '' ? null : Number($('vc-usl').value) };
         const res = window.MLSpc.subgroupChart(got.rows.map(r => ({ subgroup: r.group, value: r.value })), { spec });
@@ -833,6 +1074,12 @@
       fr.readAsText(f);
     });
     ['vc-group', 'vc-value', 'vc-part', 'vc-operator', 'vc-grr-value', 'vc-a-part', 'vc-a-operator', 'vc-a-rating', 'vc-a-standard'].forEach(id => $(id).addEventListener('change', describe));
+    /* Changing the size column changes which thresholds exist, so the tail-fraction pickers
+       have to be rebuilt before they are read. */
+    if ($('vc-psd-size')) {
+      $('vc-psd-size').addEventListener('change', () => { fillPsdThresholds(); describe(); });
+      ['vc-psd-count', 'vc-psd-group', 'vc-psd-kind', 'vc-psd-lo', 'vc-psd-hi'].forEach(id => $(id).addEventListener('change', describe));
+    }
     $('vc-run').addEventListener('click', run);
   }
 

@@ -5363,6 +5363,152 @@ test('every module the build ships is described in the README file table', () =>
   assert.deepStrictEqual(gone, [], 'the README file table lists files that do not exist: ' + gone.join(', '));
 });
 
+/* The page's own Content Security Policy is `style-src 'self'`, so a style= attribute is
+   BLOCKED in the browser - the element renders unstyled while every unit test passes. Two
+   checks for this existed and both were narrower than they sounded: one covered a single
+   diagram's SVG, the other covered learn.js. Everything else that writes HTML was unchecked,
+   and a dashed line written as style="stroke-dasharray:4 3" in variance-ui.js went straight
+   past them into a browser console error. The policy applies to every file, so the check
+   does now too. Any new dash, colour or width goes in style.css as a class. */
+test('nothing writes an inline style anywhere: the page blocks them', () => {
+  const offenders = [];
+  for (const f of fs.readdirSync(ROOT)) {
+    if (!/\.(js|html)$/.test(f)) continue;
+    const src = fs.readFileSync(path.join(ROOT, f), 'utf8');
+    src.split('\n').forEach((line, i) => {
+      if (/style\s*=\s*["']/.test(line)) offenders.push(f + ':' + (i + 1) + '  ' + line.trim().slice(0, 100));
+    });
+  }
+  assert.deepStrictEqual(offenders, [],
+    'these write a style= attribute, which the page\'s CSP blocks - use a class in style.css:\n  ' + offenders.join('\n  '));
+});
+
+/* The size-distribution module makes four measured claims, every one of which is quoted at a
+   reader in the panel, the lesson and GAPS.md. Re-measure all four here so none of them can
+   drift, and so the comparison between the two tests - which is the whole point of the module
+   - stays true rather than becoming a story about how it once behaved.
+
+   Verified to bite: each assertion below fails if its figure is moved. */
+test('the tail fraction tests what the slope only describes, by the measured margin', () => {
+  const P = require(path.join(ROOT, 'particles.js'));
+  const normal = r => { let u = 0, v = 0; while (!u) u = r(); while (!v) v = r(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+  const pop = (seed, sigma, n) => { const r = E.rng(seed), o = []; for (let i = 0; i < n; i++) o.push(Math.exp(Math.log(3) + sigma * normal(r))); return o; };
+  const at = (ds, t) => ds.filter(d => d >= t).length;
+  const BINS = [2, 5, 10, 25];
+
+  // 1. The exponent is recovered from a known power law, which is what makes it a description.
+  for (const alpha of [1.5, 2.2, 3.0]) {
+    const est = [];
+    for (let s = 0; s < 25; s++) {
+      const r = E.rng(s * 7 + 1), ds = [];
+      for (let i = 0; i < 150000; i++) ds.push(Math.pow(1 - r(), -1 / alpha));
+      const bins = BINS.map(t => ({ size: t, count: at(ds, t) }));
+      if (bins.some(b => b.count === 0)) continue;
+      est.push(P.analyze(bins).alpha);
+    }
+    const mean = E.mean(est);
+    assert.ok(Math.abs(mean - alpha) < 0.05 * alpha,
+      'the fitted exponent must recover a known power law: true ' + alpha + ', fitted ' + mean.toFixed(3));
+  }
+
+  /* 2. Under the null the tail fraction holds its nominal rate and the slope test is far too
+        conservative. Both numbers are quoted to the reader, so both are measured. */
+  let faTail = 0, faSlope = 0, n = 0;
+  for (let s = 0; s < 200; s++) {
+    const A = pop(s * 2 + 1001, 1.1, 20000), B = pop(s * 2 + 1002, 1.1, 20000);
+    const ba = BINS.map(t => ({ size: t, count: at(A, t) })), bb = BINS.map(t => ({ size: t, count: at(B, t) }));
+    if (ba.some(b => b.count === 0) || bb.some(b => b.count === 0)) continue;
+    n++;
+    if (P.tailFraction([{ label: 'A', rows: ba }, { label: 'B', rows: bb }], 10, 25).differs) faTail++;
+    if (P.compare([{ label: 'A', rows: ba }, { label: 'B', rows: bb }]).shapesDiffer) faSlope++;
+  }
+  const tailRate = faTail / n, slopeRate = faSlope / n;
+  assert.ok(tailRate <= 0.10, 'the tail fraction claims 5% false alarms; measured ' + (100 * tailRate).toFixed(1) + '% over ' + n + ' runs');
+  assert.ok(slopeRate < 0.02, 'the slope test is described as far too conservative; measured ' + (100 * slopeRate).toFixed(1) + '%');
+
+  /* 3. And on a genuine shape change at an UNCHANGED lower-threshold count - the case the
+        whole mode exists for - the fraction catches it almost always and the slope rarely.
+        The panel quotes 100% against 22%; hold them to the shape of that claim. */
+  let hitTail = 0, hitSlope = 0, m = 0, ratio = 0;
+  for (let s = 0; s < 120; s++) {
+    const A = pop(s * 2 + 2001, 1.0, 20000), B = pop(s * 2 + 2002, 1.5, 20000);
+    const nA = at(A, 10), nB = at(B, 10);
+    if (!nA || !nB) continue;
+    const k = nA / nB;
+    const ba = BINS.map(t => ({ size: t, count: at(A, t) }));
+    const bb = BINS.map(t => ({ size: t, count: Math.round(at(B, t) * k) }));
+    if (ba.some(b => b.count === 0) || bb.some(b => b.count === 0)) continue;
+    assert.strictEqual(ba[2].count, bb[2].count, 'the 10 um counts are matched by construction, or the demonstration is not the one claimed');
+    m++;
+    ratio += bb[3].count / ba[3].count;
+    if (P.tailFraction([{ label: 'A', rows: ba }, { label: 'B', rows: bb }], 10, 25).differs) hitTail++;
+    if (P.compare([{ label: 'A', rows: ba }, { label: 'B', rows: bb }]).shapesDiffer) hitSlope++;
+  }
+  ratio /= m;
+  assert.ok(ratio > 2.2 && ratio < 3.0, 'the change demonstrated is quoted as a 2.6-fold rise in the 25 um count; measured ' + ratio.toFixed(2) + '-fold');
+  assert.ok(hitTail / m > 0.95, 'the tail fraction is quoted as catching this every time; measured ' + (100 * hitTail / m).toFixed(0) + '%');
+  assert.ok(hitSlope / m < 0.45, 'the slope test is quoted as catching this about 22% of the time; measured ' + (100 * hitSlope / m).toFixed(0) + '%');
+
+  /* 4. Extrapolation: from the two USP thresholds it overshoots, MORE bins at the small end
+        make it worse, and bins bracketing the target get close. This is the counterintuitive
+        claim in the lesson, so it is the one most worth pinning. */
+  const two = [], four = [], near = [];
+  for (let s = 0; s < 30; s++) {
+    const ds = pop(s * 13 + 3, 1.1, 400000);
+    const truth = at(ds, 50);
+    if (truth < 20) continue;
+    const mk = th => th.map(t => ({ size: t, count: at(ds, t) }));
+    const b2 = mk([10, 25]), b4 = mk([2, 5, 10, 25]), bn = mk([25, 40]);
+    if ([b2, b4, bn].some(b => b.some(x => x.count === 0))) continue;
+    two.push(P.analyze(b2).powerLaw.predict(50) / truth);
+    four.push(P.analyze(b4).powerLaw.predict(50) / truth);
+    near.push(P.analyze(bn).powerLaw.predict(50) / truth);
+  }
+  const mTwo = E.mean(two), mFour = E.mean(four), mNear = E.mean(near);
+  assert.ok(mTwo > 1.2 && mTwo < 1.9, 'extrapolating from the two USP bins is quoted as 1.5x high; measured ' + mTwo.toFixed(2) + 'x');
+  assert.ok(mFour > mTwo, 'the lesson claims that adding bins at 2 and 5 um makes the extrapolation WORSE; measured ' + mFour.toFixed(2) + 'x against ' + mTwo.toFixed(2) + 'x');
+  assert.ok(mFour > 2.2 && mFour < 3.3, 'that worse figure is quoted as 2.7x; measured ' + mFour.toFixed(2) + 'x');
+  assert.ok(Math.abs(mNear - 1) < 0.15, 'bracketing bins are quoted as landing within about 6%; measured ' + (100 * Math.abs(mNear - 1)).toFixed(0) + '% off');
+
+  /* 4b. The interval printed beside every tail fraction claims 95%. Measure it, because a
+         displayed interval nobody checks is the defect this project keeps finding. */
+  for (const [nn, pp] of [[20, 0.25], [50, 0.1], [200, 0.05], [2000, 0.08]]) {
+    let hit = 0; const T = 3000, r = E.rng(42);
+    for (let i = 0; i < T; i++) {
+      let k = 0; for (let j = 0; j < nn; j++) if (r() < pp) k++;
+      const ci = P.wilson(k, nn, 1.959963984540054);
+      if (ci[0] <= pp && pp <= ci[1]) hit++;
+    }
+    const cov = hit / T;
+    assert.ok(cov > 0.92 && cov < 0.99,
+      'the tail fraction prints a 95% interval; at n=' + nn + ' p=' + pp + ' it covered ' + (100 * cov).toFixed(1) + '%');
+  }
+  // A nested proportion can never exceed 1, and the interval can never leave [0, 1].
+  for (const [k, nn] of [[0, 10], [10, 10], [1, 4000], [3999, 4000]]) {
+    const ci = P.wilson(k, nn, 1.959963984540054);
+    assert.ok(ci[0] >= 0 && ci[1] <= 1, 'the interval on a proportion must stay inside 0 to 1: ' + k + '/' + nn + ' gave ' + ci.join(' to '));
+    assert.ok(ci[0] <= k / nn && k / nn <= ci[1], 'and must contain the observed fraction');
+  }
+
+  // 5. The refusals: two bins cannot be checked, three cannot be compared, and both say so.
+  const t2 = P.analyze([{ size: 10, count: 4000 }, { size: 25, count: 350 }]);
+  assert.strictEqual(t2.checkable, false, 'two bins fit exactly and nothing checks the shape');
+  assert.strictEqual(t2.comparable, false);
+  assert.strictEqual(t2.logNormal, null, 'a three-parameter lognormal cannot be fitted to two bins at all');
+  assert.ok(/fits them EXACTLY/.test(t2.why), 'and the reason must be said, not left as a blank interval');
+  const t3 = P.analyze([{ size: 10, count: 4000 }, { size: 25, count: 350 }, { size: 50, count: 40 }]);
+  assert.strictEqual(t3.checkable, true);
+  assert.strictEqual(t3.comparable, false, 'a lognormal fits three bins exactly, so comparing residuals on three points would pick it by construction');
+
+  // A cumulative count that rises with size is named as the convention mistake it usually is.
+  assert.throws(() => P.analyze([{ size: 10, count: 300 }, { size: 25, count: 4000 }]),
+    /counts within each bin/, 'rising cumulative counts should point at the per-bin convention, not just report an error');
+  // And per-bin counts, declared as such, are summed from the top and accepted.
+  const iv = P.analyze([{ size: 10, count: 3650 }, { size: 25, count: 350 }], { kind: 'interval' });
+  assert.strictEqual(iv.bins[0].count, 4000, 'per-bin counts must be accumulated from the largest bin down');
+  assert.strictEqual(iv.bins[1].count, 350);
+});
+
 test('the README figures for the academy match the academy', () => {
   const readme = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8');
   const src = fs.readFileSync(path.join(ROOT, 'learn.js'), 'utf8');
@@ -5575,7 +5721,7 @@ test('a reader can move through the course one lesson at a time', () => {
 
    Agreement is not truth. This ties each claim to the code instead: if the function that
    would close a gap can be shown to exist, no department may still be told the gap is open.
-   Build one of the three remaining class A items and this test fails until its claim is
+   Build one of the two remaining class A items and this test fails until its claim is
    removed - which is the only way a document like this stays honest without anyone
    remembering to check. */
 test('no gap claims a capability the code already has', () => {
@@ -5594,10 +5740,10 @@ test('no gap claims a capability the code already has', () => {
     { what: 'count charts', claim: /\bno (?:\w+ )*count charts?\b/i, built: () => has(SPC.countChart) },
     { what: 'a Box-Cox path for skewed data', claim: /\bno Box-Cox\b/i, built: () => has(SPC.boxCoxLambda) },
     { what: 'conformal prediction intervals', claim: /\bno (?:\w+ )*conformal\b/i, built: () => has(UNC.conformalQuantile) },
-    // The three class A items still open. Each becomes self-policing the day it is built.
+    // The two class A items still open. Each becomes self-policing the day it is built.
     { what: 'reliability distributions', claim: /\bno reliability distributions|\bno Weibull fitting/i, built: () => fs.existsSync(path.join(ROOT, 'reliability.js')) },
     { what: 'capability across sites in one step', claim: /\bno process capability modelling across sites/i, built: () => has(SPC.crossSite) || has(SPC.acrossSites) },
-    { what: 'a size distribution across the bins', claim: /\bno size distribution fitted across the bins/i, built: () => has(SPC.sizeDistribution) || has(SPC.binnedSize) },
+    { what: 'a size distribution across the bins', claim: /\bno size distribution fitted across the bins/i, built: () => fs.existsSync(path.join(ROOT, 'particles.js')) },
     { what: 'the named ICH Q2 calculations', claim: /LOD and LOQ are not implemented|\bno ICH Q2 validation package/i, built: () => fs.existsSync(path.join(ROOT, 'ichq2.js')) },
     { what: 'forecasting a trend forward', claim: /\bno forecast of a trend forward/i, built: () => fs.existsSync(path.join(ROOT, 'forecast.js')) }
   ];
@@ -5614,6 +5760,24 @@ test('no gap claims a capability the code already has', () => {
       // And the document must not be recommending it either.
       assert.ok(!new RegExp('Build this first[\\s\\S]{0,200}' + c.what.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i').test(doc),
         c.what + ' is built but still carries a build-this-first recommendation');
+    }
+  }
+
+  /* The gaps array is not the only place a playbook can claim something is missing, and for
+     a long time it was the only place checked. Three playbooks told their groups that the
+     rare-event chart "is not built yet" - in a step's own limit field, where somebody reads
+     it while deciding what to do - months after it was built and marked delivered here. A
+     reader sent elsewhere for something the tool does is worse served than one told nothing.
+     So every word a playbook shows is scanned for the phrase, not just the gap list. */
+  for (const [key, label] of apps.FUNCTIONS) {
+    const p = apps.PLAYBOOKS[key];
+    const texts = [p.headline, p.first.why, p.first.label]
+      .concat(p.steps.flatMap(st => [st.label, st.does, st.limit, st.measured]))
+      .filter(Boolean);
+    for (const t of texts) {
+      assert.ok(!/\bis not built yet\b|\bnot built yet\b|\bis not implemented\b/i.test(t),
+        label + ' tells the reader something is not built, in a step rather than in its gap list, which nothing used to check. ' +
+        'If it is genuinely missing it belongs in gaps where the closers above can police it; if it has since been built, say what it does:\n  ' + t.slice(0, 220));
     }
   }
 

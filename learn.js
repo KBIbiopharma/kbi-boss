@@ -8,6 +8,7 @@
   const Q2 = window.MLIchQ2;
   const FC = window.MLForecast;
   const RL = window.MLReliability;
+  const PD = window.MLParticles;
   const W = window.MLWatch;
   const h = C.esc, fmt = A.fmt, pct = A.pct;
   const range = E.range;
@@ -2539,6 +2540,128 @@
     quiz: { q: 'A vendor shows you a forecasting model with R² of 0.94 on your historical data. What should you ask for?', options: ['The confidence intervals', 'Its MASE against a naive baseline, scored by rolling origin on data it never saw', 'A larger training set'], answer: 1, why: 'R² on fitted history measures how well it described the past, which any flexible method can do perfectly. The only number that matters is how it did on points it had not seen, against the dullest forecast available. If it cannot beat "carry the last value forward" on your own series, it has earned nothing - and you can run that comparison yourself in this tool before anyone signs anything.' }
   });
 
+
+
+  add({
+    id: 'size-distribution', group: 'Six Sigma and process control', title: 'Counts versus distributions: the same number, a different population',
+    analogy: 'Two towns both report 7,000 people earning over $10,000. In one, almost nobody earns over $25,000; in the other, a third of them do. Same headline number, completely different place - and every decision you would make differs. A particle count at one threshold is that headline number.',
+    intro: 'A particle counter gives you counts at a few size thresholds, and the usual treatment is to chart each one as its own number. That throws away the structure. The information is in how fast the count falls off as size rises, because the large particles are both the rarest and the ones that matter clinically. One number captures it: the slope of cumulative count against size on a log-log scale. But the slope turns out to be the wrong thing to TEST with, and the reason is worth more than the slope itself.',
+    demo(el) {
+      const CASES = [['same', 'Same count, different population'], ['check', 'Two bins check nothing'], ['extrap', 'Where extrapolation goes wrong']];
+      el.innerHTML = '<div class="demo-controls">' + CASES.map((c, i) => btn(c[0], c[1], i ? 'ghost' : 'primary')).join('') + '</div>' +
+        '<div data-role="chart"></div><div data-role="bars"></div><p class="demo-read" data-role="read"></p>';
+      /* Particles sampled one at a time from a lognormal and then binned, so every count on
+         screen is consistent with every other one. Batch B is scaled to match A at 10 um:
+         the number anybody looks at is identical and the population is not. */
+      const pop = (seed, sigma, n) => {
+        const rand = E.rng(seed), out = [];
+        for (let i = 0; i < n; i++) out.push(Math.exp(Math.log(3) + sigma * normal(rand)));
+        return out;
+      };
+      const at = (ds, t) => ds.filter(d => d >= t).length;
+      /* Counts pooled across a batch's containers rather than one container's, so the far
+         tail holds enough particles for the extrapolation case to be about the fit rather
+         than about sampling noise. 300,000 draws runs in under a tenth of a second. */
+      const A = pop(5, 1.0, 300000), B = pop(11, 1.45, 300000);
+      const scale = at(A, 10) / at(B, 10);
+      const binsOf = (ds, th, k) => th.map(t => ({ size: t, count: Math.round(at(ds, t) * (k || 1)) }));
+
+      const plot = (fits, label) => {
+        const sizes = fits.reduce((a, f) => a.concat(f.r.curve.map(c => c.size)), []);
+        const counts = fits.reduce((a, f) => a.concat(f.r.curve.map(c => c.powerLaw), f.r.fitBins.map(b => b.count)), []).filter(v => v > 0);
+        const f = frame(640, 250, [Math.log10(Math.min(...sizes)), Math.log10(Math.max(...sizes))],
+          [Math.log10(Math.min(...counts)) - 0.1, Math.log10(Math.max(...counts)) + 0.1],
+          { l: 58, b: 40, xLabel: 'Size threshold, um (log)', yLabel: 'Count at or above (log)', xFmt: v => Math.pow(10, v).toPrecision(2), yFmt: v => Math.round(Math.pow(10, v)).toLocaleString('en-US') });
+        let body = f.axes;
+        fits.forEach((x, i) => {
+          const cls = i ? 's2' : 'c1';
+          body += '<path class="line' + (i ? ' s2' : '') + '" d="' + pathOf(x.r.curve.filter(c => c.powerLaw > 0).map(c => [Math.log10(c.size), Math.log10(c.powerLaw)]), f) + '"/>';
+          if (x.r.logNormal) body += '<path class="line alt-shape' + (i ? ' s2' : '') + '" d="' +
+            pathOf(x.r.curve.filter(c => c.logNormal > 0).map(c => [Math.log10(c.size), Math.log10(c.logNormal)]), f) + '"/>';
+          for (const bin of x.r.fitBins) body += dot(f.sx(Math.log10(bin.size)), f.sy(Math.log10(bin.count)), cls, 4,
+            (x.label || 'Counts') + '\n' + bin.size + ' um: ' + bin.count.toLocaleString('en-US'));
+        });
+        q(el, 'chart').innerHTML = svg(640, 250, label, body);
+      };
+
+      const show = which => {
+        el.querySelectorAll('.demo-controls .btn').forEach(b => { b.className = 'btn ' + (b.getAttribute('data-role') === which ? 'primary' : 'ghost'); });
+        q(el, 'bars').innerHTML = '';
+
+        if (which === 'same') {
+          const th = [2, 5, 10, 25];
+          const ba = binsOf(A, th), bb = binsOf(B, th, scale);
+          const fa = PD.analyze(ba), fb = PD.analyze(bb);
+          plot([{ label: 'Batch A', r: fa }, { label: 'Batch B', r: fb }], 'Two size distributions');
+          const tf = PD.tailFraction([{ label: 'Batch A', rows: ba }, { label: 'Batch B', rows: bb }], 10, 25);
+          const sl = PD.compare([{ label: 'Batch A', rows: ba }, { label: 'Batch B', rows: bb }]);
+          C.hbar(q(el, 'bars'), [
+            { label: 'Batch A: of the particles at 10 um, reach 25 um', value: 100 * tf.groups[0].fraction, cls: '', text: (100 * tf.groups[0].fraction).toFixed(1) + '%' },
+            { label: 'Batch B: of the particles at 10 um, reach 25 um', value: 100 * tf.groups[1].fraction, cls: 'hi', text: (100 * tf.groups[1].fraction).toFixed(1) + '%' }
+          ], { min: 0, max: 100 * Math.max(tf.groups[0].fraction, tf.groups[1].fraction) * 1.3, label: 'The tail fraction' });
+          q(el, 'read').innerHTML = 'Both batches report <b>' + ba[2].count.toLocaleString('en-US') +
+            '</b> particles at or above 10 micrometres, pooled across the batch - identical, by construction. At 25 micrometres they report <b>' +
+            ba[3].count.toLocaleString('en-US') + '</b> and <b>' + bb[3].count.toLocaleString('en-US') +
+            '</b>. The fraction of 10 um particles that reach 25 um is <b>' + (100 * tf.groups[0].fraction).toFixed(1) + '%</b> against <b>' +
+            (100 * tf.groups[1].fraction).toFixed(1) + '%</b>, and the test on it returns p ' + (tf.pairs[0].p < 1e-10 ? 'below 1e-10' : tf.pairs[0].p.toExponential(1)) +
+            '. These counts are <i>nested</i> - every particle at or above 25 is also at or above 10 - so that is a proportion with an exact binomial error, not a ratio of two noisy numbers.' +
+            '<br><br>Now the uncomfortable part. The exponents are <b>' + sl.fits[0].alpha.toFixed(2) + '</b> and <b>' + sl.fits[1].alpha.toFixed(2) +
+            '</b> - nearly a factor of two apart, and visibly different on the chart - and the test comparing those slopes returns p ' + sl.pairs[0].p.toFixed(3) +
+            ': <b>no significant difference.</b> It is not broken. Its standard error is the scatter about a straight line, and on a real population most of that scatter is the curve genuinely bending rather than sampling noise, so the error bar describes the wrong thing and comes out far too wide. Measured over simulations: the tail fraction caught this kind of change <b>100%</b> of the time and fired 5.7% under the null; the slope test caught it <b>22%</b> of the time and fired 0 times in 300 under the null. Describe with the slope, test with the fraction.';
+          return;
+        }
+
+        if (which === 'check') {
+          const ba = binsOf(A, [10, 25]), b4 = binsOf(A, [2, 5, 10, 25]);
+          const f2b = PD.analyze(ba), f4 = PD.analyze(b4);
+          plot([{ label: 'Two bins', r: f2b }], 'A two-bin fit');
+          q(el, 'read').innerHTML = 'USP &lt;788&gt; reports two thresholds, 10 and 25 micrometres. Two points determine a two-parameter line <b>exactly</b>: the fit here has a residual of precisely zero and an exponent of <b>' +
+            f2b.alpha.toFixed(2) + '</b> that cannot be wrong on this data. That is not reassurance, it is the absence of a test - nothing is left over to check whether a power law describes these particles at all. ' +
+            'Put four flow-imaging bins under the same container and the exponent reads <b>' + f4.alpha.toFixed(2) + '</b> with a 95% interval of <b>' +
+            f4.alphaCi[0].toFixed(2) + ' to ' + f4.alphaCi[1].toFixed(2) + '</b> and a residual spread of ' + f4.powerLaw.residSd.toFixed(3) +
+            ' to argue with. Note the point estimate moved, which is the warning: the two-bin number was a local slope between 10 and 25, not a property of the population.' +
+            '<br><br>One thing the two bins <i>can</i> do is the tail fraction, because it counts nested events and assumes no shape whatsoever. That is why the testable part of this lesson works on compendial data and the describable part does not. And a three-parameter lognormal is no better off: it fits three bins exactly too, so comparing its residual against a two-parameter power law on three points picks the lognormal every time by construction. Four bins is the first honest comparison.';
+          return;
+        }
+
+        const th4 = [2, 5, 10, 25];
+        const target = 50;
+        const truth = at(A, target);
+        const near = PD.analyze(binsOf(A, [25, 40]));
+        const two = PD.analyze(binsOf(A, [10, 25]));
+        const four = PD.analyze(binsOf(A, th4));
+        plot([{ label: 'Four bins', r: four }], 'Extrapolating past the bins');
+        C.hbar(q(el, 'bars'), [
+          { label: 'Truth at ' + target + ' um', value: truth, cls: 'accent', text: truth.toLocaleString('en-US') },
+          { label: 'From 25 and 40 um (bracketing)', value: near.powerLaw.predict(target), cls: 'hi', text: Math.round(near.powerLaw.predict(target)).toLocaleString('en-US') },
+          { label: 'From 10 and 25 um (USP)', value: two.powerLaw.predict(target), cls: '', text: Math.round(two.powerLaw.predict(target)).toLocaleString('en-US') },
+          { label: 'From 2, 5, 10 and 25 um (four bins)', value: four.powerLaw.predict(target), cls: '', text: Math.round(four.powerLaw.predict(target)).toLocaleString('en-US') }
+        ], { min: 0, max: Math.max(truth, four.powerLaw.predict(target)) * 1.2, ref: { value: truth, label: 'truth' }, label: 'Predicted count at ' + target + ' micrometres' });
+        q(el, 'read').innerHTML = 'The batch really holds <b>' + truth.toLocaleString('en-US') + '</b> particles at or above ' + target +
+          ' micrometres. Fit from the two USP thresholds and you predict <b>' + Math.round(two.powerLaw.predict(target)).toLocaleString('en-US') +
+          '</b>, high by a factor of <b>' + (two.powerLaw.predict(target) / truth).toFixed(2) + '</b>. Now add <i>two more bins</i> at 2 and 5 micrometres - more data, four points instead of two - and it gets <b>worse</b>: <b>' +
+          Math.round(four.powerLaw.predict(target)).toLocaleString('en-US') + '</b>, a factor of <b>' + (four.powerLaw.predict(target) / truth).toFixed(2) +
+          '</b>. Fit instead from 25 and 40 micrometres, two bins that <i>bracket</i> the size you want, and you get <b>' +
+          Math.round(near.powerLaw.predict(target)).toLocaleString('en-US') + '</b> - within <b>' +
+          Math.abs(100 * (near.powerLaw.predict(target) / truth - 1)).toFixed(0) + '%</b>.' +
+          '<br><br>This is the lesson most people get backwards. The extra bins did not help because they are in the wrong <i>place</i>: a real size distribution genuinely bends, so a straight line fitted across 2 to 25 averages a slope over a range where the slope is changing, and that averaged slope is too shallow for the far tail. More data at the small end buys nothing for a question about large particles. If you need a number at ' + target +
+          ' micrometres, measure near ' + target + ' micrometres.';
+      };
+      CASES.forEach(c => { q(el, c[0]).onclick = () => show(c[0]); });
+      show('same');
+    },
+    steps: [
+      'Put the counts in as cumulative - at or above each threshold - because that is what a counter reports and what the compendial thresholds mean. Per-bin counts get summed from the largest bin down.',
+      'Read the tail fraction first: of the particles counted at the lower threshold, what share reach the upper one. Nested counts, binomial error, works on two bins.',
+      'Read the exponent second, as a description of the shape. Steep means the population dies off fast with size; shallow means a heavy tail.',
+      'Check whether anything tested the shape at all. Two bins fit a two-parameter line exactly, so nothing did - that is the normal state of USP <788> data, not bad luck.',
+      'Do not extrapolate past your largest bin on a shape nothing checked. If you need a count at a larger size, measure near that size.'
+    ],
+    when: 'Subvisible particle counts by light obscuration or flow imaging, container closure studies, aggregation on stability, and any comparison of two counters, two lines or two batches where the question is whether the population changed rather than whether the number went up.',
+    watch: 'A bent line on the log-log plot is usually two populations, not one bad fit - silicone oil droplets and protein aggregates together will give you a single exponent that lands between the two and describes neither. Split by particle type if you can, which needs a type call nothing here can make. And a single exponent says nothing about what the particles ARE: this measures sizes.',
+    where: 'The variance bench, sixth mode: give it the size column, the count column, and a group column if you are comparing. The three examples in this lesson are on the buttons there.',
+    quiz: { q: 'A line change leaves the 10 um particle count unchanged at about 4,000 per container, but the 25 um count rises from 320 to 470. The count chart on the 10 um number shows nothing. What has happened, and what would you test?', options: ['Nothing meaningful: the 10 um count is the compendial number and it is unchanged', 'The size distribution got a heavier tail. Test the fraction of 10 um particles reaching 25 um, which is a nested proportion and needs only these two thresholds', 'Fit a power law to both and compare the slopes, which is the standard shape comparison'], answer: 1, why: 'The fraction reaching 25 um went from 8.0% to 11.8% - the population changed shape, which means the mechanism generating the particles is not the same one, and the large particles are the ones that matter. Because the counts are nested, that fraction is a proportion with an exact binomial error and the test on these numbers returns p around 5e-8. The third option is the trap: with two bins the slope has no standard error at all, and even with four bins that test detects a change of this size only about 22% of the time, because its error bar is measuring the curve bending rather than sampling noise. The first option is how this change reaches a patient.' }
+  });
 
   add({
     id: 'weibull-life', group: 'Six Sigma and process control', title: 'Equipment life: is it wearing out, or just unlucky?',

@@ -580,7 +580,7 @@
         { tool: 'analyze', label: 'Count charts for things you count',
           does: 'c, u and p charts, with dispersion measured rather than assumed and the limits widened when the counts are wider than a Poisson or binomial model allows.',
           measured: 'This matters more than the choice of chart: at a dispersion of 3 - ordinary when defects cluster by lot, line or shift - the textbook chart flags about one point in sixteen from a process behaving perfectly, roughly four false signals on a sixty-point chart. Widened for the clustering, that falls to about one in ninety. When the counts really are Poisson the widening comes out at about 1.05, so it costs nothing when it is not needed.',
-          limit: 'Rare events are still badly served: at a tenth of a percent reject rate a proportion chart is mostly noise, and the chart that suits it - time or units between events - is not built yet.' },
+          limit: 'At a tenth of a percent reject rate a proportion chart is mostly noise, so the rare-event chart takes over automatically: when most rows record nothing, the gaps between events are charted instead of the rate, on probability limits rather than three sigma. What it cannot do is tell you the gaps are long enough - that is a rate you have to decide is acceptable.' },
         { tool: 'analyze', label: 'Capability that withholds what it cannot support',
           does: 'Cp and Cpk stand whatever the shape and are reported. PPM, Z.bench and sigma level are normal tail probabilities, so when the shape is not there they are recomputed on a Box-Cox transformed scale, and withheld outright if the transformed values still fail their normality test.',
           measured: 'On a right-skewed impurity whose limit sits at its true 99.9th percentile, so the real rate is 1,000 PPM by construction: at a skewness of 0.65 the normal figure reads 62 PPM, sixteen times under, and by a skewness of 1.8 it reads 0.',
@@ -638,7 +638,7 @@
         { tool: 'analyze', label: 'The counts, charted as counts',
           does: 'Counts per container or per lot with dispersion measured rather than assumed, and the limits widened when particles cluster by vial lot, line or shift - which they almost always do.',
           measured: 'At a dispersion of 3, ordinary for particle counts, the textbook chart flags one point in sixteen from a process behaving perfectly, about four false signals on a sixty-point chart, against one in ninety-four once widened. On genuinely Poisson counts the widening is x1.05, so it costs nothing when it is not needed.',
-          limit: 'Rare events remain badly served. At a finding rate in the tenths of a percent a proportion chart is mostly noise, and the chart that suits it - containers or days between findings - is not built yet.' },
+          limit: 'At a finding rate in the tenths of a percent a proportion chart is mostly noise, so the rare-event chart takes over automatically and charts the containers or days between findings instead, on probability limits. What it cannot do is set the finding rate you are willing to live with, and it needs the zeros left in - a sheet filtered to the containers where something was found has had the information removed.' },
         { tool: 'analyze', label: 'Capability without pretending the shape is normal',
           does: 'Counts are bounded at zero with a long right tail, so Cp and Cpk are reported as the shape-free ratios they are, and the tail figures are recomputed on a Box-Cox transformed scale with normality re-tested on the transformed values.',
           measured: 'On a right-skewed count whose limit sits at its true 99.9th percentile, so the real rate is 1,000 PPM by construction, the straight normal fit reports 0 PPM - no risk at all - and the transformed fit about 1,300.',
@@ -656,7 +656,7 @@
         'No image or spectrum reading, which for this group is the biggest limitation: FTIR, Raman, SEM-EDX and flow imaging outputs have to arrive as labels and numbers in columns, because the page reads tables and nothing else.',
         'No automated particle type classification. The type call stays a human judgement; what the tool does is measure how consistent and how correct that judgement is.',
         'No USP two-tier decision logic: it will not tell you which tier a result falls in, whether it is an excursion, or whether it is reportable.',
-        'No size distribution fitted across the bins - counts per bin are handled as counts, with nothing modelled over the bin structure itself.'
+        'No mixture of two populations. The distribution is fitted as one population, so a container holding both silicone oil droplets and protein aggregates gets a single exponent landing between the two and describing neither – the bent line on the log-log plot is the only warning, and reading it is left to you. Splitting a record by particle type needs the type call the tool also cannot make.'
       ]
     },
     micro: {
@@ -667,7 +667,7 @@
         { tool: 'analyze', label: 'Count charts that account for clustering',
           does: 'c, u and p charts with dispersion measured rather than assumed, and the limits widened when the counts are wider than a Poisson or binomial model allows.',
           measured: 'Measured over 400 charts of 60 points at a mean of 16: at a dispersion of 3, which is ordinary for counts that cluster, the textbook chart flags one point in sixteen from a process behaving perfectly - about four false signals per chart - against one in ninety-four once widened. On genuinely Poisson counts the widening comes out at ×1.05, so it costs nothing when it is not needed.',
-          limit: 'Rare events are still badly served. At a contamination rate of a tenth of a percent a proportion chart is mostly noise, and the chart that suits it - units or days between events - is not built yet.' },
+          limit: 'At a contamination rate of a tenth of a percent a proportion chart is mostly noise, so the rare-event chart takes over automatically and charts the days or units between recoveries instead, on probability limits. What it cannot do is judge whether the gap is long enough for the grade of room - that is a compendial decision, not a statistical one.' },
         { tool: 'variance', label: 'Attribute agreement on plate reading',
           does: 'Reader against themselves, reader against reader, and each reader against a known standard, with kappa beside every agreement percentage and miss and false alarm rates reported separately.',
           measured: 'Why the percentage alone will not do: at a 10% positive rate, a reader who calls everything negative scores 90% agreement, a kappa of exactly 0, and a 100% miss rate. The percentage reads as an excellent reader.',

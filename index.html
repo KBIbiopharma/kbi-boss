@@ -602,6 +602,7 @@
             <option value="agree">Do people agree on a pass or fail call? (attribute agreement)</option>
             <option value="sites">Is it the same process at every site? (capability across sites)</option>
             <option value="subgroup">Is the process stable, sampling several per batch? (X-bar with R or S)</option>
+            <option value="psd">Has the particle size distribution changed shape? (counts per size bin)</option>
           </select>
         </label>
       </div>
@@ -621,6 +622,19 @@
         <div class="controls" id="vc-map-components">
           <label>Grouping column <select id="vc-group"></select></label>
           <label>Result column <select id="vc-value"></select></label>
+        </div>
+        <div class="controls" id="vc-map-psd" hidden>
+          <label>Size threshold column (micrometres) <select id="vc-psd-size"></select></label>
+          <label>Count column <select id="vc-psd-count"></select></label>
+          <label>Group column (optional) <select id="vc-psd-group"></select></label>
+          <label>What the counts mean
+            <select id="vc-psd-kind">
+              <option value="cumulative" selected>At or above each size (cumulative, as USP &lt;788&gt; reports)</option>
+              <option value="interval">Within each bin only (per-bin, summed for you)</option>
+            </select>
+          </label>
+          <label>Tail fraction: from <select id="vc-psd-lo"></select></label>
+          <label>&hellip; up to <select id="vc-psd-hi"></select></label>
         </div>
         <div class="controls" id="vc-map-grr" hidden>
           <label>Sample or part <select id="vc-part"></select></label>
@@ -1324,6 +1338,7 @@
 <script src="stab.js"></script>
 <script src="golden-ui.js"></script>
 <script src="tost-ui.js"></script>
+<script src="particles.js"></script>
 <script src="variance.js"></script>
 <script src="variance-ui.js"></script>
 <script src="tolerance.js"></script>
