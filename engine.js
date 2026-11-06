@@ -1,4 +1,4 @@
-/* KBI BOSS engine: CSV parsing, profiling, encoding, models, cross-validation.
+/* BOSS engine: CSV parsing, profiling, encoding, models, cross-validation.
    Pure computation only. This file makes no network calls and touches no storage,
    so the same code runs in the browser and in Node for the tests. */
 (function (root) {

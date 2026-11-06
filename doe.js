@@ -1,4 +1,4 @@
-/* KBI BOSS DOE module: detect designed experiments, analyze them (effects, p-values,
+/* BOSS DOE module: detect designed experiments, analyze them (effects, p-values,
    optimum), and generate new designs (full/fractional factorial, Plackett-Burman,
    central composite, Box-Behnken). Pure computation; no network, no storage. */
 (function (root) {

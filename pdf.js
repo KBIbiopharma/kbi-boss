@@ -163,7 +163,7 @@
         objs[catalog - 1] = '<< /Type /Catalog /Pages ' + pagesId + ' 0 R >>';
         objs[pagesId - 1] = '<< /Type /Pages /Kids [' + pageIds.map(id => id + ' 0 R').join(' ') + '] /Count ' + pageIds.length + ' >>';
         const d = new Date(), pad2 = v => String(v).padStart(2, '0');
-        const info = add('<< /Title (' + esc(ansi(opt.title || 'Report')) + ') /Producer (KBI BOSS) /CreationDate (D:' + d.getFullYear() + pad2(d.getMonth() + 1) + pad2(d.getDate()) + pad2(d.getHours()) + pad2(d.getMinutes()) + pad2(d.getSeconds()) + ') >>');
+        const info = add('<< /Title (' + esc(ansi(opt.title || 'Report')) + ') /Producer (BOSS) /CreationDate (D:' + d.getFullYear() + pad2(d.getMonth() + 1) + pad2(d.getDate()) + pad2(d.getHours()) + pad2(d.getMinutes()) + pad2(d.getSeconds()) + ') >>');
 
         // Assemble bytes; every string here is single-byte, so length = byte count.
         const parts = [], offsets = [];
