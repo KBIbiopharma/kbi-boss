@@ -1,4 +1,4 @@
-/* ML Agent. System fonts only (no web-font requests), so nothing loads from other servers. */
+/* KBI BOSS. System fonts only (no web-font requests), so nothing loads from other servers. */
 :root {
   color-scheme: light;
   --bg: #f3f4f1; --surface: #ffffff; --surface-2: #f7f8f6; --ink: #17222b; --muted: #56636c; --line: #d3d8d6; --grid: #e6e9e7;

@@ -1,4 +1,6 @@
-# Swiss Army Knife ML Agent
+# KBI BOSS
+
+*KBI Biopharma Optimization Statistics Suite*
 
 Type what you are trying to find out and it names the tool and the first move. One private, in-browser tool for regression, classification, clustering, design of experiments (DOE), shelf-life estimation, method-transfer equivalence, variance components and measurement-system analysis, specification setting and study sizing, and sequence optimization, with a built-in academy whose 69 lessons run from basic statistics to machine learning and cover every method it reports.
 
@@ -48,7 +50,7 @@ Drop in a CSV &mdash; or a JSON export from a LIMS or an instrument, as a list o
 
     There is deliberately **no free energy** in that figure. A number in kcal/mol needs a nearest-neighbour parameter set and a partition function; printing a plausible-looking one from anything less, beside a diagram that looks like the real thing, would be worse than printing none. Nor is the protein drawing a structure: nothing here folds a protein, and nothing offline could.
 17. **Reports several models, not just the winner.** The leaderboard already scores a dozen; now the top three are each **refit and asked independently which inputs they lean on**, and their answers are shown side by side with a measured verdict on whether they agree. Three model families that work in completely different ways landing on the same driver is far better evidence than any one of them alone &mdash; and where they disagree, the tool says so plainly rather than letting one ranking stand unchallenged. A driver only one model likes is reported as a lead, not a finding.
-18. **Teaches the concepts, in order.** `learn.html` (ML Agent Academy) is a 69-lesson course that starts at basic statistics and ends at calibrated prediction intervals, grouped as *Statistics foundations* &rarr; *Start here* &rarr; *Predicting numbers and categories* &rarr; *Finding patterns* &rarr; *Design of experiments* &rarr; *Six Sigma and process control* &rarr; *Validating an analytical method* &rarr; *Optimizing with evolution* &rarr; *Using the results*. Every lesson carries an analogy, a hands-on visual built on seeded made-up data, plain-English steps, when to use it, what to watch for, where it appears in the tool, and a quick check.
+18. **Teaches the concepts, in order.** `learn.html` (KBI BOSS Academy) is a 69-lesson course that starts at basic statistics and ends at calibrated prediction intervals, grouped as *Statistics foundations* &rarr; *Start here* &rarr; *Predicting numbers and categories* &rarr; *Finding patterns* &rarr; *Design of experiments* &rarr; *Six Sigma and process control* &rarr; *Validating an analytical method* &rarr; *Optimizing with evolution* &rarr; *Using the results*. Every lesson carries an analogy, a hands-on visual built on seeded made-up data, plain-English steps, when to use it, what to watch for, where it appears in the tool, and a quick check.
 
     It covers **every method the tool reports** &mdash; attribute versus variable data, mean against median, distribution shape, sampling error, confidence intervals, p-values, correlation traps, cross-validation, overfitting, each model family, category encoding and its leak, collinearity and VIF, randomization and blocking, every design the builder can generate, multiplicity correction, capability, control charts, count charts, CUSUM and EWMA, rare-event gap charts, Box-Cox, tolerance intervals and distribution-free bounds, power and sample size, ICH Q2 linearity, detection and quantitation limits, robustness studies, reading the tool’s refusals, attribute agreement and kappa, Gage R&amp;R, variance components, equivalence, shelf life, multivariate monitoring, desirability, Taguchi, codon optimization and conformal intervals &mdash; and the test suite fails if a method is added to the tool without a lesson for it.
 
@@ -291,7 +293,7 @@ but its output should be, and the tool should be what qualifies it.
 
 - `DEMO.md`: a 12-minute executive demo script using the public datasets in `demo-data/`, with expected results and answers to common questions.
 - `DEPLOY.md`: hosting on IIS, Apache, nginx or a shared drive, the security summary for IT, integrity checks and a smoke test.
-- `package.sh` builds `dist/ml-agent-intranet-<version>.zip` (runtime files, demo data, docs, `SHA256SUMS.txt`). CI builds the same zip on every push: open the "ML Agent tests" run in the Actions tab and download the `ml-agent-intranet` artifact.
+- `package.sh` builds `dist/kbi-boss-intranet-<version>.zip` (runtime files, demo data, docs, `SHA256SUMS.txt`). CI builds the same zip on every push: open the "KBI BOSS tests" run in the Actions tab and download the `kbi-boss-intranet` artifact.
 
 ## Run locally
 
@@ -349,7 +351,7 @@ node --test tests/run-tests.js
 | `app.js` | Page logic, report, delete and privacy self-test |
 | `pdf.js` | Dependency-free PDF writer for "Save as PDF" |
 | `explain.js` | Plain-English explanations and analogies shared by results, report and lessons |
-| `learn.html`, `learn.js` | ML Agent Academy: interactive lessons |
+| `learn.html`, `learn.js` | KBI BOSS Academy: interactive lessons |
 | `campaign.js` | The iteration loop: stacking rounds, per-round metrics, range-effect attribution, learning-curve projection |
 | `campaign-ui.js` | Step 6 panel: rounds table, targets, what another round would buy |
 | `samples.js` | Synthetic biologics practice datasets, tagged by function |

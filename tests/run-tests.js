@@ -1,4 +1,4 @@
-/* ML Agent tests. Run with: node --test tests/run-tests.js
+/* KBI BOSS tests. Run with: node --test tests/run-tests.js
    Covers parsing, models, DOE math, the agent's decisions, and a privacy lint that fails
    if code that could send or store data is ever added. */
 'use strict';
@@ -6336,7 +6336,7 @@ test('the academy links out without opening a door', () => {
   assert.ok(/rel="noopener noreferrer"/.test(src), 'external links need rel="noopener noreferrer"');
   assert.ok(/target="_blank"/.test(src), 'external links should not replace the lesson');
   // And the page says, in the lesson, that these leave and need a connection.
-  assert.ok(/leave ML Agent and need an internet connection/.test(src), 'the block must say what it costs');
+  assert.ok(/leave KBI BOSS and need an internet connection/.test(src), 'the block must say what it costs');
   assert.ok(/nothing is sent anywhere unless you click/.test(src), 'and what it does not cost');
   // The check date is printed, because "verified" without a date is not a claim.
   assert.ok(/CHECKED/.test(src) && /\d{4}/.test(W.CHECKED), 'the date the links were checked must be shown');

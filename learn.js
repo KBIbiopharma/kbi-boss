@@ -1,4 +1,4 @@
-/* ML Agent Academy: interactive lessons. Each lesson has an analogy, a hands-on demo built
+/* KBI BOSS Academy: interactive lessons. Each lesson has an analogy, a hands-on demo built
    on made-up data, plain-English steps, and a one-question check. Quiz progress is kept in
    memory only. No network, no storage. */
 (function () {
@@ -367,7 +367,7 @@
   add({
     id: 'start', group: 'Start here', title: 'What machine learning is (and is not)',
     analogy: 'An apprentice who studies thousands of past jobs until they can guess the outcome of the next one, but who never understands the physics.',
-    intro: 'Machine learning finds patterns in past data and uses them to predict or group new data. It is fast and tireless, but it only knows what is in the data. It cannot tell cause from coincidence on its own. That is why ML Agent pairs it with Design of Experiments.',
+    intro: 'Machine learning finds patterns in past data and uses them to predict or group new data. It is fast and tireless, but it only knows what is in the data. It cannot tell cause from coincidence on its own. That is why KBI BOSS pairs it with Design of Experiments.',
     demo(el) {
       el.innerHTML = '<div class="demo-grid">' + ['Supervised: learning with an answer key', 'Unsupervised: finding groups with no answer key'].map((t, i) => '<div><h4>' + t + '</h4><div data-role="p' + i + '"></div></div>').join('') + '</div>' +
         '<div class="demo-controls">' + btn('go', 'Let the algorithm find groups', 'primary') + '</div><p class="demo-read" data-role="read">Left: every point already has a label (blue Pass, orange Fail), so a model can learn to predict it. Right: no labels at all. Press the button to let k-means look for natural groups.</p>';
@@ -944,7 +944,7 @@
       ['circle', 'moons', 'xor'].forEach(k => { q(el, 'd-' + k).onclick = () => { kind = k; el.querySelectorAll('[data-role^="d-"]').forEach(b => { b.className = 'btn ' + (b.getAttribute('data-role') === 'd-' + k ? 'primary' : 'ghost'); }); restart(); }; });
       restart();
     },
-    steps: ['Each unit computes a weighted sum of its inputs plus a bias, then keeps it only if positive (ReLU).', 'Two hidden layers let the network combine simple cuts into curves and islands.', 'Training nudges every weight a little to reduce the error (backpropagation with the Adam optimizer), one batch at a time.', 'ML Agent holds back 15% of rows and stops when their error stops improving (early stopping), keeping the best version.'],
+    steps: ['Each unit computes a weighted sum of its inputs plus a bias, then keeps it only if positive (ReLU).', 'Two hidden layers let the network combine simple cuts into curves and islands.', 'Training nudges every weight a little to reduce the error (backpropagation with the Adam optimizer), one batch at a time.', 'KBI BOSS holds back 15% of rows and stops when their error stops improving (early stopping), keeping the best version.'],
     when: 'Tangled, curved patterns with enough rows (hundreds or more), where trees and straight lines fall short.',
     watch: 'Needs more data than simple models, is hard to explain, and can overfit small tables. On many business tables boosting or a forest does as well with less fuss, and the agent will tell you when.',
     where: 'The "Neural network (MLP)" row on the leaderboard, the live learning curve while the agent runs, and the "Neural network: how it learned" card.',
@@ -3309,7 +3309,7 @@
         'The search that finds it: <b>' + h(w.search) + '</b></p></div>';
     }
     return '<div class="card watch"><h3>Watch it explained elsewhere</h3>' +
-      '<p class="watch-note"><b>These leave ML Agent and need an internet connection.</b> They are plain links - nothing from these sites is loaded into this page, and nothing is sent anywhere unless you click one.</p>' +
+      '<p class="watch-note"><b>These leave KBI BOSS and need an internet connection.</b> They are plain links - nothing from these sites is loaded into this page, and nothing is sent anywhere unless you click one.</p>' +
       '<ul class="watch-list">' + w.watch.map(v =>
         '<li><a href="' + h(W.url(v.id)) + '" target="_blank" rel="noopener noreferrer">' + h(v.title) +
         '</a> <span class="watch-ch">' + h(v.channel) + '</span></li>').join('') + '</ul>' +
@@ -3350,7 +3350,7 @@
       '<div class="analogy-box"><b>Analogy</b><span>' + h(l.analogy) + '</span></div><p>' + h(l.intro) + '</p>' +
       '<div class="card demo" data-role="demo"></div>' +
       '<div class="cols2"><div class="card"><h3>How it works</h3><ol class="steps">' + l.steps.map(s => '<li>' + h(s) + '</li>').join('') + '</ol></div>' +
-      '<div class="card"><h3>When to use it</h3><p>' + h(l.when) + '</p><h3>Watch out for</h3><p>' + h(l.watch) + '</p><h3>Where you see it in ML Agent</h3><p>' + h(l.where) + '</p></div></div>' +
+      '<div class="card"><h3>When to use it</h3><p>' + h(l.when) + '</p><h3>Watch out for</h3><p>' + h(l.watch) + '</p><h3>Where you see it in KBI BOSS</h3><p>' + h(l.where) + '</p></div></div>' +
       watchHtml(l) +
       '<div class="card quiz"><h3>Quick check</h3><p>' + h(l.quiz.q) + '</p><div class="opts">' + l.quiz.options.map((o, k) => '<button type="button" class="opt" data-k="' + k + '">' + h(o) + '</button>').join('') + '</div><p class="why" aria-live="polite"></p></div>' +
       '<nav class="lesson-nav">' + (prev ? '<a class="btn ghost" href="#' + prev.id + '">← ' + h(prev.title) + '</a>' : '<span></span>') + (next ? '<a class="btn primary" href="#' + next.id + '">' + h(next.title) + ' →</a>' : '<a class="btn primary" href="./">Try it on data →</a>') + '</nav>';
@@ -3363,7 +3363,7 @@
       if (ok) { answered[l.id] = true; renderNav(l.id); }
     });
     renderNav(l.id);
-    document.title = l.title + ' · ML Agent Academy';
+    document.title = l.title + ' · KBI BOSS Academy';
   }
 
   function route() {

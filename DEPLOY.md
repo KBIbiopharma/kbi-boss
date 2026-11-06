@@ -1,6 +1,6 @@
-# Deploying ML Agent on an internal network
+# Deploying KBI BOSS on an internal network
 
-ML Agent is a folder of static files: HTML, CSS and JavaScript. There is no server-side code, no database, no install, no licence key and no internet access needed. Any internal web server that can serve files can host it.
+KBI BOSS (KBI Biopharma Optimization Statistics Suite) is a folder of static files: HTML, CSS and JavaScript. There is no server-side code, no database, no install, no licence key and no internet access needed. Any internal web server that can serve files can host it.
 
 ## What IT needs to know (security summary)
 
@@ -19,16 +19,16 @@ ML Agent is a folder of static files: HTML, CSS and JavaScript. There is no serv
 | Integrity | `SHA256SUMS.txt` lists a fingerprint for every file, so you can confirm nothing was changed. |
 
 ## Option A: Windows IIS (most common)
-1. Copy the folder to the server, for example `C:\inetpub\wwwroot\ml-agent`.
+1. Copy the folder to the server, for example `C:\inetpub\wwwroot\kbi-boss`.
 2. In IIS Manager, add it as an application or virtual directory under your intranet site.
 3. Keep `web.config`: it adds the security headers.
-4. Browse to `https://<intranet>/ml-agent/`.
+4. Browse to `https://<intranet>/kbi-boss/`.
 
 ## Option B: Apache or nginx
 Copy the folder under the web root. To send the security headers (recommended), add:
 
 ```nginx
-location /ml-agent/ {
+location /kbi-boss/ {
   add_header Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src data: blob:; font-src 'none'; connect-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'self'; manifest-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors 'self'" always;
   add_header X-Content-Type-Options nosniff always;
   add_header Referrer-Policy no-referrer always;
@@ -36,7 +36,7 @@ location /ml-agent/ {
 ```
 
 ```apache
-<Directory "/var/www/html/ml-agent">
+<Directory "/var/www/html/kbi-boss">
   Header always set Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src data: blob:; font-src 'none'; connect-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'self'; manifest-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors 'self'"
   Header always set X-Content-Type-Options nosniff
   Header always set Referrer-Policy no-referrer

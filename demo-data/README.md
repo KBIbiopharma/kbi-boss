@@ -1,6 +1,6 @@
 # Demo datasets
 
-Public datasets for showing ML Agent. Drag a file onto the agent, or choose it with "Choose a CSV file". These are files on disk; the page never downloads them on its own.
+Public datasets for showing KBI BOSS. Drag a file onto the tool, or choose it with "Choose a CSV file". These are files on disk; the page never downloads them on its own.
 
 | File | Rows | Use it to show | Pick as target | Source and licence |
 |---|---|---|---|---|
