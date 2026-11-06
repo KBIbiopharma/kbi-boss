@@ -515,7 +515,18 @@ test('Six Sigma mode in the agent', async () => {
   assert.ok(c && c.Cpk < c.Cp && c.verdict === 'not capable');
   assert.ok(mold.spc.imr && mold.spc.boxes.by.some(b => b.name === 'Resin_Lot') && mold.spc.taguchi.type === 'nominal');
   assert.ok(mold.insights.some(i => /Process capability: Cpk/.test(i.text)));
-  assert.ok(mold.nextSteps.some(s => /Gage R&R/.test(s.text)));
+  /* This dataset cannot support a Gage R&R and this assertion used to demand one. RunID has
+     160 unique values in 160 rows, so nothing is measured twice, and Resin_Lot's 53 rows per
+     lot are 53 different runs rather than one run measured 53 times. The old unconditional
+     next step told the reader to go and run a measurement study anyway, and this test pinned
+     it there. What it must assert is the honest output: the measurement gap named, with what
+     to collect, and no study recommended that this sheet cannot produce. */
+  assert.ok(!mold.nextSteps.some(s => /Gage R&R mode/.test(s.text)),
+    'nothing in this dataset is measured twice, so a Gage R&R must not be recommended');
+  assert.ok(mold.nextSteps.some(s => /no crossed study that could separate the instrument/.test(s.text)),
+    'but the gap it leaves must be named rather than passed over in silence');
+  assert.ok(mold.nextSteps.some(s => /same samples measured more than once/.test(s.text)),
+    'with the columns that would change the answer');
   /* Centred against these limits, so the advice is to reduce spread rather than to move the
      mean. Both branches are checked, because an agent that only ever says one of them is
      reciting rather than reading the data. */
@@ -5925,6 +5936,114 @@ test('every failure the agent records is shown to the reader, not silently dropp
   // And the message has to carry the reason, not merely note that something went wrong.
   assert.ok(/a missing card looks like a clean result|reads as a pass|said here rather than left out/i.test(app),
     'the page must say why it is showing the refusal at all, since that is the rule being followed');
+});
+
+/* The Six Sigma next steps used to fire on rep.spc existing and nothing else: everybody was
+   told to run a Gage R&R and to use the drivers and a DOE, whether or not the sheet in hand
+   could support either. The bioreactor demo is exactly the bad case - BatchID has 64 unique
+   values in 64 rows, so nothing is measured twice and a measurement study is impossible with
+   it. A recommendation somebody cannot act on is worse than none: it sends them looking for a
+   study their data cannot produce, and it teaches them to skip the next one too.
+
+   Each referral is earned from the data now, and where none is earned the output is what to go
+   and collect. Two gates were wrong before they were right, and both are pinned here: a
+   column that merely REPEATS is not a repeated measurement (ten rows sharing a lot number are
+   ten different batches), and the sample identifier a Gage R&R needs is exactly the column a
+   supervised run sets aside as an identifier, so the gate has to read the whole sheet rather
+   than the model's inputs. */
+test('a referral is only offered when the data could support it, and says what to collect when it cannot', async () => {
+  const A = require(path.join(ROOT, 'agent.js'));
+  const src = fs.readFileSync(path.join(ROOT, 'agent.js'), 'utf8');
+  assert.ok(/function referrals\(/.test(src), 'the referrals must be a gated pass, not inline prose on rep.spc');
+  assert.ok(!/run a quick Gage R&R/.test(src),
+    'the unconditional Gage R&R recommendation must be gone - it fired on sheets with nothing measured twice');
+
+  const normal = r => { let u = 0, v = 0; while (!u) u = r(); while (!v) v = r(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+  const csv = rows => rows.map(r => r.join(',')).join('\n');
+  const spc = { lsl: 88, usl: 96, target: null, timeOrdered: true, unitsColumn: null };
+  const run = async text => {
+    const t = E.parseTable(text);
+    const rep = await A.run(t, { target: t.columns.slice(-1)[0], sixSigma: spc });
+    return { rep, text: rep.nextSteps.map(x => x.title + ': ' + x.text).join('\n') };
+  };
+
+  // No repeats at all: a measurement study is impossible with this sheet.
+  const noRepeat = [['BatchID', 'Vessel', 'Temp_C', 'Yield']];
+  { const r = E.rng(5);
+    for (let i = 0; i < 60; i++) noRepeat.push(['B-' + i, 'V' + (i % 3), (37 + normal(r) * 0.4).toFixed(2), (90 + normal(r) * 3).toFixed(2)]); }
+  const a = await run(csv(noRepeat));
+  assert.ok(!/Gage R&R mode/.test(a.text), 'nothing repeats here, so a Gage R&R must not be recommended:\n' + a.text.slice(0, 300));
+  assert.ok(/no crossed study that could separate the instrument/.test(a.text), 'and the gap has to be named');
+  assert.ok(/same samples measured more than once/.test(a.text), 'with what to collect, concretely');
+
+  // A textbook crossed study - 10 samples, 3 analysts, 2 repeats - must get the referral.
+  const crossed = [['Sample', 'Analyst', 'Result']];
+  { const r = E.rng(7);
+    for (let i = 0; i < 10; i++) for (const an of ['A1', 'A2', 'A3']) for (let k = 0; k < 2; k++)
+      crossed.push(['S-' + i, an, (93 + normal(r) * 1.6).toFixed(2)]); }
+  const b = await run(csv(crossed));
+  assert.ok(/Gage R&R mode/.test(b.text), 'a crossed 10x3x2 study IS supported and must be offered:\n' + b.text.slice(0, 300));
+  assert.ok(/crossed with 3 levels/.test(b.text), 'and the referral must quote the crossing that earned it');
+  assert.ok(/measured more than once/.test(b.text), 'including that some cells carry repeats, which is what gives repeatability');
+
+  /* A column that merely repeats is NOT a repeated measurement. Lot has ten rows each, and
+     those are ten different batches from one lot - the first version of this gate recommended
+     a measurement study off exactly this and would have sent somebody looking for repeats
+     that do not exist. */
+  const rich = [['Lot', 'Vessel', 'Temp_C', 'pH', 'Feed', 'Hold_h', 'Purity']];
+  { const r = E.rng(11);
+    for (let i = 0; i < 80; i++) {
+      const t = 36 + normal(r) * 1.2, ph = 7 + normal(r) * 0.15, f = 10 + normal(r) * 2, hl = 2 + Math.floor(r() * 4);
+      rich.push(['L' + (i % 8), 'V' + (i % 3), t.toFixed(2), ph.toFixed(3), f.toFixed(2), hl,
+        (92 + (t - 36) * 0.8 + (ph - 7) * 4 + normal(r) * 2.4).toFixed(2)]);
+    } }
+  const c = await run(csv(rich));
+  assert.ok(!/Gage R&R mode/.test(c.text),
+    'ten rows per lot are ten batches, not one batch measured ten times, so no measurement study is supported:\n' + c.text.slice(0, 300));
+  // But it has plenty to explain the spread, so the drivers referral is earned.
+  const cap = c.rep.spc.capability;
+  assert.ok(cap && cap.Cpk !== null && cap.Cpk < 1.33, 'this fixture is meant to be incapable; Cpk came out ' + (cap && cap.Cpk));
+  assert.ok(/move up a slot/.test(c.text), 'incapable with five usable inputs and 80 rows must refer to the drivers bench');
+  assert.ok(/shuffled-target noise floor/.test(c.text),
+    'and must promise nothing: the referral names the noise floor that decides whether anything is found');
+
+  /* Sample-ish and operator-ish columns present, fully crossed, but NO cell measured twice.
+     Structurally this cannot give repeatability, so the study is not supported - and this is
+     the fixture that pins the crossing requirement rather than the naming patterns. */
+  const noRepeatCell = [['Lot', 'Analyst', 'Purity']];
+  { const r = E.rng(17);
+    for (let i = 0; i < 12; i++) for (const an of ['A1', 'A2', 'A3'])
+      noRepeatCell.push(['L-' + i, an, (92 + normal(r) * 2.4).toFixed(2)]); }
+  const e = await run(csv(noRepeatCell));
+  assert.ok(!/Gage R&R mode/.test(e.text),
+    'every sample-by-analyst cell here holds exactly one result, so there is no repeatability to measure and no study to recommend:\n' + e.text.slice(0, 300));
+  assert.ok(/no crossed study that could separate the instrument/.test(e.text),
+    'and the gap must still be named');
+
+  /* Repeats present and fully crossed, but the repeating column is a VESSEL - a grouping, not
+     a sample. Structurally this is indistinguishable from a measurement study, so the column
+     name is the only thing that separates them and this fixture is what pins that. Ten vessels
+     each measured twice by three analysts is a perfectly good crossed design on paper and a
+     meaningless Gage R&R in practice: it would report the spread between vessels as
+     part-to-part variation, which is exactly what it is, while telling you nothing about the
+     instrument. */
+  const grouping = [['Vessel', 'Analyst', 'Purity']];
+  { const r = E.rng(19);
+    for (let i = 0; i < 10; i++) for (const an of ['A1', 'A2', 'A3']) for (let k = 0; k < 2; k++)
+      grouping.push(['V-' + i, an, (92 + i * 0.2 + normal(r) * 2.2).toFixed(2)]); }
+  const f = await run(csv(grouping));
+  assert.ok(!/Gage R&R mode/.test(f.text),
+    'a vessel is a grouping rather than a sample, so this crossed shape must not be read as a measurement study:\n' + f.text.slice(0, 300));
+
+  // Incapable with almost nothing that could explain it: no drivers referral, a collection list.
+  const bare = [['Batch', 'Shift', 'Purity']];
+  { const r = E.rng(13);
+    for (let i = 0; i < 60; i++) bare.push(['B-' + i, i % 2 ? 'Day' : 'Night', (92 + normal(r) * 2.4).toFixed(2)]); }
+  const d = await run(csv(bare));
+  assert.ok(!/move up a slot/.test(d.text),
+    'one usable input is not enough to rank drivers, so the referral would be guessing:\n' + d.text.slice(0, 300));
+  assert.ok(/cannot say why/.test(d.text), 'the honest referral has to appear instead');
+  assert.ok(/raw-material lot, vessel, line, shift/.test(d.text), 'and name what to start recording');
 });
 
 test('the README figures for the academy match the academy', () => {

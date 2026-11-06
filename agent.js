@@ -725,6 +725,131 @@
     }
     return out;
   }
+  /* ---------- earned referrals ----------
+     Each one names the bench to open, what in THIS data triggered it, and what it would buy.
+     The gate is the point: a referral is only offered when the sheet in hand can support the
+     study being recommended, and the structure alone decides that - column kinds, levels and
+     row counts - so it works in Six Sigma mode whether or not models were fitted.
+
+     Where nothing is earned, the output is not silence and not a hopeful suggestion: it is
+     the columns to start recording, because that is the only thing that would change the
+     answer. */
+  function referrals(rep, prof, targetCol, features) {
+    const out = [];
+    const add = (phase, title, text) => out.push({ phase, title, text });
+    const s = rep.spc, c = s && s.capability;
+    const n = rep.nUsed || prof.nRows;
+    const cols = (features || []).filter(f => f.name !== (targetCol && targetCol.name));
+    /* For the measurement study, every column in the sheet - not just the ones the model kept.
+       A sample identifier is the kind of column a supervised run sets aside, as an identifier
+       or as a leak, and it is the column a Gage R&R is built on. This is defensive rather than
+       a fix for an observed failure: on the crossed studies I could construct the sample column
+       survived into the model's inputs anyway, so no fixture here demonstrates it mattering.
+       It is kept because the exclusion it guards against is one the agent is entitled to make
+       at any time, and the cost of reading one more list is nothing. */
+    const allCols = (prof.columns || []).filter(f => f.name !== (targetCol && targetCol.name));
+
+    /* A Gage R&R needs the SAME SAMPLE measured more than once, by more than one operator or
+       instrument - a crossed design. A column that merely repeats is not enough and the first
+       version of this gate got that wrong: a Lot column with ten rows per lot is ten different
+       batches from one lot, not one batch measured ten times, and recommending a measurement
+       study off it sends somebody looking for repeats that do not exist. So the pair is looked
+       for, and the crossing is checked on the actual values. */
+    const SAMPLEISH = /sample|specimen|part|vial|aliquot|unit|^id$|id$|batch|lot/i;
+    const OPERISH = /analyst|operator|instrument|system|device|gauge|technician|appraiser|column|lab|site|machine|probe/i;
+    const crossing = (a, b) => {
+      const cells = new Map();
+      for (let i = 0; i < a.values.length; i++) {
+        const av = a.values[i], bv = b.values[i];
+        if (av === null || bv === null) continue;
+        const key = String(av) + '\u0000' + String(bv);
+        cells.set(key, (cells.get(key) || 0) + 1);
+      }
+      const want = a.unique * b.unique;
+      const filled = cells.size;
+      let repeated = 0;
+      for (const v of cells.values()) if (v >= 2) repeated++;
+      return { filled, want, coverage: want ? filled / want : 0, repeatedCells: repeated };
+    };
+    let gauge = null;
+    for (const smp of allCols.filter(f => f.unique >= 5 && f.unique <= n / 2 && SAMPLEISH.test(f.name))) {
+      for (const op of allCols.filter(f => f !== smp && f.unique >= 2 && f.unique <= 10 && OPERISH.test(f.name))) {
+        const x = crossing(smp, op);
+        /* Most cells present, and some of them measured twice - the first gives
+           reproducibility between operators, the second gives repeatability within one.
+           What this catches is the STRUCTURAL case: a sheet with no repeated cell cannot
+           support the study, whatever its columns are called. What it cannot catch is the
+           semantic one - a vessel measured twice by three analysts has exactly the shape of a
+           measurement study and is not one, because the spread between vessels is real
+           part-to-part variation rather than the instrument. Only the column's name separates
+           those, so the name patterns above are load-bearing and are pinned by a fixture in
+           the tests. What remains uncatchable: a sheet that names a grouping column "Sample"
+           would still be referred. The panel it opens asks for the sample and operator columns
+           explicitly, which is where that would surface. */
+        if (x.coverage >= 0.7 && x.repeatedCells >= Math.max(3, x.filled * 0.5)) { gauge = { smp, op, x }; break; }
+      }
+      if (gauge) break;
+    }
+    const gaugeable = gauge ? [gauge] : [];
+    /* Candidate factors: something with a handful of levels, or a numeric input with spread.
+       Three is the floor for a drivers run worth reading, and ten rows per factor is the rule
+       of thumb the insights already use. */
+    const factors = cols.filter(f => (f.kind === 'categorical' && f.unique >= 2 && f.unique <= 12) ||
+      (f.kind === 'numeric' && f.unique >= 4));
+    const streams = cols.filter(f => f.kind === 'categorical' && f.unique >= 2 && f.unique <= 8);
+
+    if (s && s.designed) {
+      add('Analyze', 'Read this as a DOE, not as a capability study',
+        'The factors here were varied on purpose, so the spread is the experiment rather than the process and the capability figures above describe the design. The effects, the aliasing and the response surface are the useful output: the machine learning and DOE bench analyses them, and Six Sigma mode on routine production data is what gives you a real capability.');
+    }
+
+    if (gauge) {
+      add('Measure', 'Qualify the measurement before trusting the capability',
+        'A capability index built on an unqualified assay is a confident number about the assay, and this sheet can settle it: "' +
+        gauge.smp.name + '" has ' + gauge.smp.unique + ' values crossed with ' + gauge.op.unique + ' levels of "' + gauge.op.name + '", ' +
+        Math.round(100 * gauge.x.coverage) + '% of those combinations are present and ' + gauge.x.repeatedCells +
+        ' of them are measured more than once - which is a crossed study with both reproducibility between ' + gauge.op.name +
+        ' and repeatability within. The variance bench, Gage R&R mode, splits what you observe into the instrument, the people and real part-to-part difference.');
+    } else if (c) {
+      add('Measure', 'Nothing here can qualify the measurement, and that is a gap worth naming',
+        'Every figure above takes the measurement at face value, and this sheet holds no crossed study that could separate the instrument from the product - a column that repeats is not enough, because ten rows sharing a lot number are ten different batches rather than one batch measured ten times. So the share of this spread that is the assay is unknown rather than small. What would change it: the same samples measured more than once, by more than one analyst or instrument, with a column naming the sample and a column naming who or what measured it. Ten samples, three analysts, two repeats is the usual study.');
+    }
+
+    /* The referral the gap asked for: in control but not capable means the problem is not
+       stability, it is variation - and that is a drivers question, which needs factors. */
+    const notCapable = c && c.Cpk !== null && c.Cpk < 1.33;
+    const stable = s && s.imr && s.imr.signals.length === 0;
+    if (notCapable && factors.length >= 2 && n >= 10 * Math.min(factors.length, 5)) {
+      add('Analyze', 'The chart is not the problem here — move up a slot',
+        (stable ? 'The process is in control and still not capable, which means stability is not what is costing you: the spread itself is too wide for the specification. '
+          : 'The process is not capable, and once the signals above are dealt with the spread itself will still be too wide for the specification. ') +
+        'That is a different question from the one a control chart answers, and this sheet can support it: ' + factors.length +
+        ' candidate input' + (factors.length === 1 ? '' : 's') + ' across ' + n + ' rows. Switch to the machine learning and design of experiments bench — one slot up in the technique list — and it ranks which of them moves ' +
+        (rep.target || 'the result') + ', with a shuffled-target noise floor beside the ranking so an input with nothing behind it is reported as having nothing behind it. Then it designs the experiment that would prove it.');
+    } else if (notCapable) {
+      add('Analyze', 'The spread is too wide, and this sheet cannot say why',
+        'Cpk is ' + (c.Cpk === null ? 'not computable' : c.Cpk.toFixed(2)) + ', so the variation needs reducing rather than watching - but ' +
+        (factors.length < 2
+          ? 'this sheet records the result and almost nothing that could explain it (' + factors.length + ' usable input column' + (factors.length === 1 ? '' : 's') + '). A drivers analysis on it would be guessing.'
+          : n + ' rows for ' + factors.length + ' inputs is too thin for a drivers analysis to beat its own noise floor.') +
+        ' What would change the answer: record the things you already suspect alongside the result — raw-material lot, vessel, line, shift, analyst, hold time, the parameters you set — one column each, one row per batch. Thirty rows and half a dozen such columns is enough to start.');
+    }
+
+    if (streams.length && n >= 20) {
+      const st = streams.sort((a, b) => a.unique - b.unique)[0];
+      add('Measure', 'Check whether this is one process or several',
+        '"' + st.name + '" has ' + st.unique + ' levels, so the chart above may be averaging across ' + st.unique +
+        ' things that behave differently — two lines, two vessels, two sites. The variance bench compares capability across them and tests whether they may be pooled at all, and withholds a combined index when they may not, because one number over several different processes describes a mixture nobody runs.');
+    }
+
+    if (c && c.tailsUsable === false) {
+      add('Analyze', 'For a defensible limit on data this shape, change benches',
+        'The PPM, Z.bench and sigma level are withheld above because they are normal tail probabilities and these results are not bell-shaped. What does work without assuming a shape is a tolerance interval taken from the ranking of the results alone: the limits bench does that, and reports what it costs in sample size rather than hiding it.');
+    }
+
+    return out;
+  }
+
   function spcInsights(rep, add) {
     const s = rep.spc;
     if (!s) return;
@@ -947,13 +1072,20 @@
       add('Define', 'Pick an outcome to predict', 'If you have a result column (yield, defects, revenue, churn), choose it as the target and rerun. The agent will then find the drivers and design an experiment.');
     }
     if (rep.spc) {
-      add('Measure', 'Check the measurement system first', 'Before trusting capability, confirm the gauge can see the difference: run a quick Gage R&R. If measurement noise is a big share of the spread, fix that first.');
+      /* The referrals used to fire on rep.spc existing and nothing else: everybody was told
+         to run a Gage R&R and to use the drivers and a DOE, whether or not the sheet they had
+         could support either. A recommendation somebody cannot act on is worse than none - it
+         sends them looking for a study their data cannot produce, and it teaches them to skip
+         the next recommendation too. Each one is earned from the data now, and where nothing
+         is earned the honest output is what to go and collect. */
+      for (const r of referrals(rep, prof, targetCol, features)) add(r.phase, r.title, r.text);
       const c = rep.spc.capability;
       if (c && c.Cpk !== null && c.Cpk < 1.33) {
         const offCenter = c.centeredCpk !== null && c.centeredCpk - c.Cpk > 0.2;
-        add('Improve', offCenter ? 'Center the process, then reduce variation' : 'Reduce variation', (offCenter ? 'Move the mean from ' + fmt(c.mean) + ' toward ' + fmt((c.lsl + c.usl) / 2) + ' (Cpk ' + c.Cpk.toFixed(2) + ' → ' + c.centeredCpk.toFixed(2) + '). ' : '') + (c.centeredCpk !== null && c.centeredCpk < 1.33 ? 'To reach Cpk 1.33 the standard deviation must drop to about ' + fmt(c.sigmaFor133) + '. Use the drivers and the DOE to find what creates the spread.' : 'Then hold it there with the control chart.'));
+        add('Improve', offCenter ? 'Center the process, then reduce variation' : 'Reduce variation', (offCenter ? 'Move the mean from ' + fmt(c.mean) + ' toward ' + fmt((c.lsl + c.usl) / 2) + ' (Cpk ' + c.Cpk.toFixed(2) + ' → ' + c.centeredCpk.toFixed(2) + '). ' : '') + (c.centeredCpk !== null && c.centeredCpk < 1.33 ? 'To reach Cpk 1.33 the standard deviation must drop to about ' + fmt(c.sigmaFor133) + '.' : 'Then hold it there with the control chart.'));
       }
       if (rep.spc.imr && rep.spc.imr.signals.length) add('Analyze', 'Investigate the control-chart signals', 'Find out what happened at the flagged rows (shift change, new lot, maintenance). Remove special causes before judging capability.');
+      if (rep.spc.driftError || rep.spc.countsError || rep.spc.rareError) add('Measure', 'Some charts could not be computed', 'The run reports which and why above. A chart that could not be drawn is not a chart that found nothing.');
       if (rep.spc.taguchi) add('Improve', 'Set factors for robustness', 'Use the most robust levels in the Taguchi table for factors that do not affect the average much. They cut variation for free.');
     }
     if (rep.desirability && rep.desirability.best.D > 0) add('Improve', 'Confirm the best compromise', 'Run 3 to 5 batches at the compromise settings in the desirability card and check every result against its acceptable range. Each result has its own model and its own error, so the combined prediction is less certain than any single one.');
