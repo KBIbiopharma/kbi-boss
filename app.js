@@ -1743,6 +1743,11 @@
        somebody who wants a capability study should not have to find it behind a radio button
        on a bench called machine learning. The option carries data-opens="analyze" and the
        mode is flipped on arrival. */
+    /* Nothing is chosen until somebody chooses. The old default landed everybody on the
+       machine-learning bench, which quietly made it the recommended first move for every
+       question - and for most people arriving with a process metric it is the second move,
+       after asking whether the thing is stable and capable at all. */
+    '': 'Pick what you are trying to find out. Six Sigma is first on the list because it is usually the first question: is this process stable, and is it capable against its specification. The machine learning bench answers the next one \u2014 what is driving the result \u2014 and the rest are for a specific job each.',
     sigma: 'Process capability against your specification, the individuals chart with CUSUM and EWMA beside it, count and rare-event charts where the data is counted, box plots by source and Taguchi robustness. The same run as the machine-learning bench, with the process-control output switched on.',
     privacy: 'How the tool keeps your data on your own device, and how to check that for yourself.'
   };
@@ -2195,16 +2200,21 @@
     const o = $('tool') && $('tool').querySelector('option[value="' + name + '"]');
     return (o && o.getAttribute('data-opens')) || name;
   };
-  const PANELS = TOOL_NAMES.filter(n => opensOf(n) === n);
+  const PANELS = TOOL_NAMES.filter(n => n && opensOf(n) === n);
   function showTool(name, push) {
-    if (!TOOL_NAMES.includes(name)) name = 'analyze';
+    if (!TOOL_NAMES.includes(name)) name = '';
     const panel = opensOf(name);
     // Asking for a tool means wanting to see it, wherever the request came from.
     showPage('tools', false);
     if ($('tool').value !== name) $('tool').value = name;
     $('tool-desc').textContent = TOOLS[name];
     renderApplications(panel);
-    PANELS.forEach(n => { $('tab-' + n).hidden = n !== panel; });
+    /* With nothing chosen every panel is hidden and the prompt above is the whole page, which
+       is the point: a bench on screen is a recommendation, and recommending one before the
+       question is known is how somebody ends up fitting models to a metric they have not yet
+       established is stable. */
+    PANELS.forEach(n => { $('tab-' + n).hidden = !panel || n !== panel; });
+    if ($('tool-unchosen')) $('tool-unchosen').hidden = !!panel;
     /* The two doors onto the ML bench set the mode they were opened for. Clicking through to
        the plain bench after using the Six Sigma one should not leave the spec panel up, and
        arriving at the Six Sigma one should not require finding the radio. */
@@ -2214,7 +2224,7 @@
       if (radio && !radio.checked) { radio.checked = true; radio.dispatchEvent(new Event('change', { bubbles: true })); }
     }
     // A link can be shared or bookmarked straight to one tool.
-    if (push && location.hash.slice(1) !== name) history.replaceState(null, '', '#' + name);
+    if (push && location.hash.slice(1) !== name) history.replaceState(null, '', name ? '#' + name : location.pathname);
   }
   function initTools() {
     $('tool').addEventListener('change', () => { showTool($('tool').value, true); window.scrollTo({ top: 0, behavior: 'smooth' }); });
@@ -2234,11 +2244,11 @@
       const pg = PAGES.find(x => x.hash && x.hash === hash);
       if (!pg) { showTool(hash, false); return; }
       // showTool would pull us back to the tool page, so the tool is set first and the page after.
-      showTool($('tool').value || 'analyze', false);
+      showTool($('tool').value, false);
       showPage(pg.id, false);
     };
     window.addEventListener('hashchange', () => routeTo(location.hash.slice(1)));
-    routeTo(location.hash.slice(1) || 'analyze');
+    routeTo(location.hash.slice(1));
   }
 
   function init() {
@@ -2251,7 +2261,11 @@
       /* The datasets sit on the "where to start" page and the tool is on the other one, so
          loading one has to carry you across. Leaving somebody on a page whose button just
          did something invisible elsewhere is the worst of both layouts. */
-      showTool('analyze', true);
+      /* Loading a dataset is not choosing a technique, so this carries you to the tool page
+         without picking one - the prompt there says the data is loaded and waiting. Jumping
+         straight to the machine learning bench made it the implied first move for every
+         practice set, which is the thing the unchosen default exists to stop. */
+      showTool('', true);
       window.scrollTo({ top: 0, behavior: 'smooth' });
       if (s.files) { loadText(s.files[0].make(), s.files[0].name, s.target); stageSecond(s.files[1].make(), s.files[1].name); return; }
       loadText(s.make(), s.title + ' (practice data)', s.target);

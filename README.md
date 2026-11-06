@@ -246,6 +246,11 @@ Drop in a CSV &mdash; or a JSON export from a LIMS or an instrument, as a list o
     **And a theme picker**, which is the one thing here somebody asked for. All three modes already existed in the stylesheet; what was missing was any way to choose. Three options rather than two for one reason: *follow my device* has to be nameable to get back to it, because on a dark-set machine picking Light **pins** it light, which is a different state from following along. Two buttons leave no way home. The choice does not survive a reload, and each option says so, because this page keeps nothing anywhere and a theme preference is not worth being the exception that puts an asterisk on that guarantee &mdash; the privacy lint caught a planted `localStorage` in it, which is the guarantee doing its job.
 
 
+41. **Six Sigma first, and nothing chosen until somebody chooses.** The technique list opened on *Machine learning &amp; design of experiments*, which quietly made it the recommended first move for every question. For most people arriving with a process metric it is the second move: **a capability index taken across a process that was never in control describes a mixture rather than a process**, so *is this stable and capable* comes before *what is driving it*. Six Sigma is now the first technique offered, and the list opens on **Select a technique&hellip;** with no bench on screen &mdash; because a bench on screen is a recommendation, and the page should not make one before it knows the question.
+
+    Three places were quietly reinstating a default and all three are fixed: the fallback for an unrecognised tool name, the hash router on arrival with no fragment, and the practice-dataset click, which jumped to the ML bench and so made it the implied first move for every dataset. Loading data is not choosing a technique: the data loads, the target is still guessed, and the prompt says so, because somebody who has just clicked a dataset and landed on a prompt needs telling that the click worked. The order and the unchosen default are both pinned by the build, since either is one careless reorder away from being undone and neither would look broken when it was.
+
+
 Ways to share results, all built in the browser:
 - **Save as PDF**: an A4 report (action plan, what-if scenarios, every chart with its "how to read this" note, the DOE run sheet, the models in plain words, a glossary, and an audit trail).
 - **Download Excel (.xlsx)**: every number behind the report, one sheet per topic (summary, audit trail, columns and roles, models, drivers, action plan, capability, control chart, desirability, DOE effects, what-if scenarios, DOE run sheet, data analyzed). Numbers stay numbers.
@@ -349,4 +354,14 @@ node --test tests/run-tests.js
 | `campaign-ui.js` | Step 6 panel: rounds table, targets, what another round would buy |
 | `samples.js` | Synthetic biologics practice datasets, tagged by function |
 
-Limits: up to 3,000 rows are used for modeling (a random sample above that), classification supports up to 20 classes, and gradient boosting for classification is binary only.
+**How much data it takes.** Nothing fails up to 200,000 rows &mdash; measured in a browser on a sheet of six numeric inputs, one category and a result:
+
+| Rows | Six Sigma analysis | Full ML run | Rows the models saw | Rows behind the capability figure |
+|---:|---:|---:|---:|---:|
+| 500 | 30 ms | 2.0 s | all | all |
+| 3,000 | 85 ms | 7.7 s | all | all |
+| 10,000 | 0.3 s | 7.4 s | 3,000 | **all 10,000** |
+| 50,000 | 2.3 s | 12.7 s | 3,000 | **all 50,000** |
+| 200,000 | 9.9 s | 21.7 s | 3,000 | **all 200,000** |
+
+Comfortable up to about **50,000 rows**; 200,000 works and feels slow. The three limits worth knowing, because they differ: **modelling** uses at most 3,000 rows and takes a random sample above that, saying so in the log &mdash; which is why the ML time stops growing. **Capability, Cp, Cpk and the PPM figures use every row**, so a capability index off a 200,000-row export is computed on all of it rather than on a sample. **Control charts plot the last 500 points**, and the card says "last 500 rows" when it has trimmed. Classification supports up to 20 classes, and gradient boosting for classification is binary only.

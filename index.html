@@ -43,8 +43,9 @@
     <div class="wrap toolbar-row">
       <label for="tool">Technique</label>
       <select id="tool">
-        <option value="analyze">Machine learning &amp; design of experiments</option>
+        <option value="" selected>Select a technique&hellip;</option>
         <option value="sigma" data-opens="analyze">&#9881; Process capability, control charts &amp; Taguchi (Six Sigma)</option>
+        <option value="analyze">Machine learning &amp; design of experiments</option>
         <option value="stability">Trends over time: shelf life (ICH Q1E) &amp; forecasting</option>
         <option value="golden">PCA &amp; multivariate SPC (golden batch)</option>
         <option value="equivalence">Equivalence &amp; non-inferiority testing (TOST)</option>
@@ -57,6 +58,21 @@
       <p class="tool-desc" id="tool-desc" aria-live="polite"></p>
     </div>
   </div>
+
+  <!-- Shown until a technique is picked. A bench on screen is a recommendation, and the page
+       should not recommend one before it knows the question. -->
+  <section class="wrap step" id="tool-unchosen">
+    <div class="card">
+      <h2>Which question are you asking?</h2>
+      <p class="summary">Pick a technique above. Any data you have already loaded stays loaded &mdash; choosing a technique does not clear it.</p>
+      <div class="unchosen-grid">
+        <p><b>Start with Six Sigma</b> if you have a process metric and want to know whether it is stable and capable against its specification. For most questions about a running process that is the first move, and the answer changes what the rest of the analysis means: a capability index taken across a process that was never in control describes a mixture rather than a process.</p>
+        <p><b>Machine learning &amp; DOE</b> answers the next question &mdash; what is driving the result, and which experiment would prove it. Worth reaching for once you know the metric is stable, or when the question is prediction rather than control.</p>
+        <p><b>The rest are each for one job:</b> shelf life and forecasting over time, multivariate batch monitoring, equivalence between two methods or sites, variance components and measurement-system studies, specification limits and study sizing, vector selection, and sequence optimization.</p>
+        <p class="hint">Not sure? The <b>Where to start</b> page asks what you are trying to find out and names the technique and the first move.</p>
+      </div>
+    </div>
+  </section>
 
 
   <div class="tabpanel" id="tab-analyze" role="tabpanel" aria-labelledby="tab-btn-analyze">

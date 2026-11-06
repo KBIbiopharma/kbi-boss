@@ -6108,6 +6108,56 @@ test('the theme picker offers device, light and dark, and stores nothing', () =>
   assert.ok(/theme\.js/.test(fs.readFileSync(path.join(ROOT, 'package.sh'), 'utf8')), 'package.sh must ship theme.js');
 });
 
+/* The technique list opens on nothing and Six Sigma comes first, and both are deliberate.
+
+   A bench on screen is a recommendation. Defaulting to the machine learning bench made it the
+   implied first move for every question, and for most people arriving with a process metric it
+   is the second move: a capability index taken across a process that was never in control
+   describes a mixture rather than a process, so "is this stable and capable" comes before
+   "what drives it". Nothing is chosen until somebody chooses, and the first thing they see
+   offered is the question that usually comes first.
+
+   Pinned because both are one careless reorder away from being undone, and neither would break
+   anything visibly when it was. */
+test('the technique list opens unchosen, and Six Sigma is the first thing offered', () => {
+  const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  const app = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
+  const sel = html.slice(html.indexOf('<select id="tool">'), html.indexOf('</select>', html.indexOf('<select id="tool">')));
+  const opts = [...sel.matchAll(/<option value="([a-z]*)"([^>]*)>/g)].map(m => ({ value: m[1], attrs: m[2] }));
+  assert.ok(opts.length >= 9, 'the selector was not read: ' + opts.length + ' options');
+
+  // Nothing chosen on arrival, and it is the placeholder that carries the selected attribute.
+  assert.strictEqual(opts[0].value, '', 'the first option must be the placeholder, so the list opens on no technique');
+  assert.ok(/\bselected\b/.test(opts[0].attrs), 'and the placeholder must be the selected one');
+  for (const o of opts.slice(1)) assert.ok(!/\bselected\b/.test(o.attrs),
+    'no real technique may be pre-selected: "' + o.value + '" is');
+  assert.ok(/Select a technique/i.test(sel), 'the placeholder has to say what it wants');
+
+  // Six Sigma first among the real ones.
+  const real = opts.filter(o => o.value).map(o => o.value);
+  assert.strictEqual(real[0], 'sigma',
+    'Six Sigma must be the first technique offered, because "is it stable and capable" comes before "what drives it"; the list starts with ' + real[0]);
+  assert.ok(real.indexOf('analyze') === 1, 'with the machine learning bench next, as the question that follows it');
+
+  /* Nothing in the code may quietly reinstate a default. These were the three places that did:
+     the unknown-name fallback, the hash router, and the practice-dataset click. */
+  assert.ok(/if \(!TOOL_NAMES\.includes\(name\)\) name = '';/.test(app),
+    'an unrecognised tool name must fall back to nothing chosen, not to a bench');
+  assert.ok(!/routeTo\(location\.hash\.slice\(1\) \|\| 'analyze'\)/.test(app),
+    'arriving with no hash must not land on a bench');
+  assert.ok(!/showTool\('analyze', true\)/.test(app),
+    'loading a practice dataset must not pick a technique either - that made the ML bench the implied first move for every dataset');
+
+  // And with nothing chosen, the page has to say what it is waiting for.
+  assert.ok(/id="tool-unchosen"/.test(html), 'there must be a prompt for the unchosen state');
+  assert.ok(/tool-unchosen'\)\.hidden = !!panel/.test(app), 'and it must be hidden exactly when a panel is shown');
+  const prompt = html.slice(html.indexOf('id="tool-unchosen"'), html.indexOf('</section>', html.indexOf('id="tool-unchosen"')));
+  assert.ok(/stays loaded/.test(prompt),
+    'the prompt must say that loaded data survives the choice, or somebody who just loaded a dataset will think the click failed');
+  assert.ok(/Six Sigma/.test(prompt) && /stable and capable/.test(prompt),
+    'and it must say why Six Sigma is first, rather than just listing the options');
+});
+
 test('the README figures for the academy match the academy', () => {
   const readme = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8');
   const src = fs.readFileSync(path.join(ROOT, 'learn.js'), 'utf8');

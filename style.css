@@ -30,6 +30,9 @@
 /* The theme picker. Small, in the header, and the pressed state is the current mode - which
    is read off the html element rather than remembered, so the brief light override the print
    path applies cannot leave the control showing the wrong thing. */
+/* The pick-a-technique prompt: readable column, not a wall. */
+.unchosen-grid p { max-width: 68ch; margin: .6rem 0; }
+
 .theme-pick { display: inline-flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
 .theme-btn {
   font: inherit; font-size: .78rem; line-height: 1; padding: .34rem .5rem; cursor: pointer;
