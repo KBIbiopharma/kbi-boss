@@ -73,6 +73,13 @@ h3 { font-size: 1.05rem; margin-bottom: .5rem; }
 .page-intro h2 { margin: 0 0 6px; font-size: 1.35rem; }
 .page-intro .lede { margin: 0; max-width: 72ch; }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 1.1rem; color: var(--ink); text-decoration: none; letter-spacing: .02em; }
+/* The short name over the full one. Stacked rather than side by side so the header keeps one
+   line on a laptop, and the subtitle shrinks rather than disappearing on a phone - a name
+   somebody asked to see should not be the thing that vanishes first. */
+.brand-text { display: flex; flex-direction: column; line-height: 1.15; }
+.brand-sub { font-size: .68rem; font-weight: 600; color: var(--muted); letter-spacing: .01em; margin-top: 1px; }
+@media (max-width: 560px) { .brand-sub { font-size: .6rem; } }
+
 .logo { width: 22px; height: 22px; border-radius: 5px; background: var(--steel); position: relative; }
 .logo::after { content: ""; position: absolute; left: 4px; bottom: 4px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
 .lock { display: inline-flex; align-items: center; gap: 6px; font-size: .85rem; font-weight: 600; color: var(--good); background: var(--good-bg); border-radius: 999px; padding: 4px 12px; text-decoration: none; }

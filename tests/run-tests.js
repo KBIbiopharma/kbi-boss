@@ -6158,6 +6158,32 @@ test('the technique list opens unchosen, and Six Sigma is the first thing offere
     'and it must say why Six Sigma is first, rather than just listing the options');
 });
 
+/* The short name is what people say; the full one is what tells a newcomer what the tool is.
+   Both are in the header of both pages, and the full one is pinned here because a subtitle is
+   exactly the kind of thing that gets dropped in a later tidy-up without anybody noticing. */
+test('the header carries the short name and the full one, on both pages', () => {
+  const FULL = 'Biopharma Optimization Statistics Suite';
+  const css = fs.readFileSync(path.join(ROOT, 'style.css'), 'utf8');
+  for (const [page, short] of [['index.html', 'BOSS'], ['learn.html', 'BOSS Academy']]) {
+    const html = fs.readFileSync(path.join(ROOT, page), 'utf8');
+    const brand = html.slice(html.indexOf('<a class="brand"'), html.indexOf('</a>', html.indexOf('<a class="brand"')));
+    assert.ok(brand.indexOf('>' + short + '<') >= 0, page + ': the header must carry the short name "' + short + '"');
+    assert.ok(brand.indexOf(FULL) >= 0, page + ': the header must also carry the full name');
+    assert.ok(/class="brand-sub"/.test(brand), page + ': the full name needs its own class, or it cannot be styled apart from the short one');
+  }
+  // Styled, or it renders the same size as the name above it and reads as a run-on sentence.
+  for (const rule of ['.brand-text', '.brand-sub']) {
+    assert.ok(css.indexOf(rule) >= 0, 'the header needs a rule for ' + rule);
+  }
+  assert.ok(/\.brand-sub\s*\{[^}]*font-size/.test(css), 'the full name must be set smaller than the short one');
+  /* It shrinks on a narrow screen rather than being hidden. A name somebody asked to see
+     should not be the first thing that disappears on a phone. */
+  assert.ok(/@media[^{]*\{\s*\.brand-sub\s*\{[^}]*font-size/.test(css),
+    'there must be a narrow-screen rule that resizes the subtitle');
+  assert.ok(!/\.brand-sub\s*\{[^}]*display:\s*none/.test(css),
+    'and it must not be hidden on small screens');
+});
+
 test('the README figures for the academy match the academy', () => {
   const readme = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8');
   const src = fs.readFileSync(path.join(ROOT, 'learn.js'), 'utf8');
