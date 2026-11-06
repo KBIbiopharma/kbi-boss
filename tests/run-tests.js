@@ -6046,6 +6046,68 @@ test('a referral is only offered when the data could support it, and says what t
   assert.ok(/raw-material lot, vessel, line, shift/.test(d.text), 'and name what to start recording');
 });
 
+/* The theme picker. All three modes already existed in the stylesheet - a prefers-color-scheme
+   block and a data-theme override the print path used - so what this guards is the control and
+   the promise attached to it.
+
+   Three options rather than two, and the reason is not taste: "follow my device" has to be
+   nameable to get back to it, because on a dark-set machine picking Light PINS it light, which
+   is a different state from following along. Two buttons leave no way home.
+
+   And the limitation has to stay stated rather than discovered: a choice does not survive a
+   reload, because this page stores nothing and a theme preference is not worth being the
+   exception that puts an asterisk on that guarantee. */
+test('the theme picker offers device, light and dark, and stores nothing', () => {
+  const T = require(path.join(ROOT, 'theme.js'));
+  const src = fs.readFileSync(path.join(ROOT, 'theme.js'), 'utf8');
+  const css = fs.readFileSync(path.join(ROOT, 'style.css'), 'utf8');
+
+  const ids = T.MODES.map(m => m[0]);
+  assert.deepStrictEqual(ids, ['device', 'light', 'dark'],
+    'the device option must exist and come first: without it there is no way back from a pinned choice');
+
+  /* The guarantee. The privacy lint covers the project already, but this is the one feature
+     with an obvious reason to break it, so it is checked where somebody would be tempted. */
+  /* Usage, not mentions: the file's own comment says "no localStorage, no sessionStorage, no
+     cookie", and a test that matched the bare word would fail on the sentence promising the
+     opposite. So the pattern requires the syntax of actually reaching into one. */
+  for (const bad of [/localStorage\s*[.[]/, /sessionStorage\s*[.[]/, /document\.cookie\s*=/, /indexedDB\s*[.[]/i]) {
+    assert.ok(!bad.test(src), 'the theme picker must not store the choice: ' + bad);
+  }
+  // And each option's tooltip must say what it does about persistence, not leave it to be found.
+  const device = T.MODES.find(m => m[0] === 'device')[2];
+  assert.ok(/survives a reload/.test(device), 'the device option must say it is the one that persists');
+  for (const id of ['light', 'dark']) {
+    const why = T.MODES.find(m => m[0] === id)[2];
+    assert.ok(/until you reload/.test(why), 'the ' + id + ' option must say the choice is lost on reload');
+    assert.ok(/[Nn]othing is stored/.test(why), 'and why: ' + why);
+  }
+
+  // The three CSS paths the modes rely on, each of which has to exist for a mode to do anything.
+  assert.ok(/@media \(prefers-color-scheme: dark\)/.test(css), 'device mode needs the media query');
+  assert.ok(/:root:not\(\[data-theme="light"\]\)/.test(css),
+    'and that query must be guarded, or picking Light on a dark machine would do nothing');
+  assert.ok(/:root\[data-theme="dark"\]/.test(css), 'dark mode needs its own override for a light machine');
+  // The control itself must be styled, or it renders as three unstyled buttons.
+  for (const cls of ['.theme-pick', '.theme-btn', '.theme-btn.on']) {
+    assert.ok(css.indexOf(cls) >= 0, 'the picker needs a rule for ' + cls);
+  }
+
+  /* current() reads the attribute rather than a remembered value. The print path sets
+     data-theme to light and restores it, and a control reading a stale variable would start
+     describing a page it is not on. */
+  assert.ok(/getAttribute\('data-theme'\)/.test(src), 'the current mode must be read from the element, not cached');
+  assert.ok(!/\blet\s+mode\b|\bcurrentMode\s*=/.test(src), 'and not held in a variable that the print path could leave stale');
+
+  // Both pages load it, and the build ships it.
+  for (const page of ['index.html', 'learn.html']) {
+    const html = fs.readFileSync(path.join(ROOT, page), 'utf8');
+    assert.ok(/<script src="theme\.js">/.test(html), page + ' must load theme.js');
+    assert.ok(/class="top-nav"/.test(html), page + ' needs the header nav the picker mounts into');
+  }
+  assert.ok(/theme\.js/.test(fs.readFileSync(path.join(ROOT, 'package.sh'), 'utf8')), 'package.sh must ship theme.js');
+});
+
 test('the README figures for the academy match the academy', () => {
   const readme = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8');
   const src = fs.readFileSync(path.join(ROOT, 'learn.js'), 'utf8');
