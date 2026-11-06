@@ -127,7 +127,7 @@
     ctx = ctx || {};
     const o = ctx.options || {}, when = ctx.when || new Date(), S = [];
     S.push({ title: 'Run', rows: [
-      ['Tool', 'BOSS ' + APP_VERSION + ' — Biopharma Optimization Statistics Suite (static web page, runs entirely in the browser)'],
+      ['Tool', 'BOSS ' + APP_VERSION + ' — Biopharma Optimization Stats Suite (static web page, runs entirely in the browser)'],
       ['Generated', when.toISOString()],
       ['Local time', when.toString()],
       ['Random seed', rep.seed || 42],

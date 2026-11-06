@@ -6162,7 +6162,7 @@ test('the technique list opens unchosen, and Six Sigma is the first thing offere
    Both are in the header of both pages, and the full one is pinned here because a subtitle is
    exactly the kind of thing that gets dropped in a later tidy-up without anybody noticing. */
 test('the header carries the short name and the full one, on both pages', () => {
-  const FULL = 'Biopharma Optimization Statistics Suite';
+  const FULL = 'Biopharma Optimization Stats Suite';
   const css = fs.readFileSync(path.join(ROOT, 'style.css'), 'utf8');
   for (const [page, short] of [['index.html', 'BOSS'], ['learn.html', 'BOSS Academy']]) {
     const html = fs.readFileSync(path.join(ROOT, page), 'utf8');

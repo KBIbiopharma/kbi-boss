@@ -1,6 +1,6 @@
 # BOSS
 
-*Biopharma Optimization Statistics Suite*
+*Biopharma Optimization Stats Suite*
 
 Type what you are trying to find out and it names the tool and the first move. One private, in-browser tool for regression, classification, clustering, design of experiments (DOE), shelf-life estimation, method-transfer equivalence, variance components and measurement-system analysis, specification setting and study sizing, and sequence optimization, with a built-in academy whose 69 lessons run from basic statistics to machine learning and cover every method it reports.
 

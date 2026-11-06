@@ -1619,7 +1619,7 @@
       if (state.design) files.push({ name: 'doe-run-sheet.csv', data: D.toCSV(state.design.design, state.design.factors, state.design.response) });
       const manifest = files.map(f => AU.sha256(typeof f.data === 'string' ? AU.utf8(f.data) : f.data) + '  ' + f.name).join('\n') + '\n';
       files.push({ name: 'SHA256SUMS.txt', data: manifest });
-      files.push({ name: 'README.txt', data: 'Biopharma Optimization Statistics Suite (BOSS) audit package\nCreated ' + when.toISOString() + ' from ' + state.name + '\n\n' +
+      files.push({ name: 'README.txt', data: 'Biopharma Optimization Stats Suite (BOSS) audit package\nCreated ' + when.toISOString() + ' from ' + state.name + '\n\n' +
         'report.pdf        The full report: results, charts, explanations and the audit trail.\n' +
         'results.xlsx      Every number behind the report, one sheet per topic, plus the data analyzed.\n' +
         'audit-trail.txt   Input file fingerprints (SHA-256), merge details, settings, exclusions and the agent log.\n' +
