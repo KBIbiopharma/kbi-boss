@@ -76,6 +76,13 @@ h3 { font-size: 1.05rem; margin-bottom: .5rem; }
 /* The short name over the full one. Stacked rather than side by side so the header keeps one
    line on a laptop, and the subtitle shrinks rather than disappearing on a phone - a name
    somebody asked to see should not be the thing that vanishes first. */
+/* The contact line in the footer. The one address in the product, and the one link in
+   index.html that goes anywhere - it opens the reader's mail client and loads nothing, which
+   the line says rather than leaving somebody to wonder. */
+.foot-contact { margin-top: .9rem; padding-top: .9rem; border-top: 1px solid var(--line); max-width: 78ch; }
+.foot-contact a { color: var(--steel); font-weight: 600; }
+.foot-contact .hint { display: block; margin-top: .35rem; }
+
 .brand-text { display: flex; flex-direction: column; line-height: 1.15; }
 .brand-sub { font-size: .68rem; font-weight: 600; color: var(--muted); letter-spacing: .01em; margin-top: 1px; }
 @media (max-width: 560px) { .brand-sub { font-size: .6rem; } }
